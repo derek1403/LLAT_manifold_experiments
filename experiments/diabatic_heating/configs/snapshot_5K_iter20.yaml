@@ -1,0 +1,16 @@
+# Snapshot (frozen-time) power iteration on the single 3 h DLAMPty operator M:
+#   ū = M(u0);  u'_1 = M(u0 + f) - ū;  u'_i = M(ū + u'_{i-1} + f) - ū
+# Constant heating forcing f (full amp_K) is added EVERY iteration, amplifying the
+# fastest-growing finite-time structure at one valid time.
+extends: base.yaml
+tag: snapshot_5K_iter20
+mode: snapshot
+iterations: 20
+perturbation:
+  type: heating
+  injection: per_step
+  amp_K: 5.0
+  heat_type: Deep         # Deep | Shallow | Stratiform (sets the vertical profile)
+  forcing_steps: 20       # = iterations -> constant forcing every iteration
+  amp_mode: each          # full amp_K each iteration (snapshot's constant f)
+  sigma: 5.0

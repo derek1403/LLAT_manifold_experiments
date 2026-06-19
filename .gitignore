@@ -1,0 +1,38 @@
+# =============================================================================
+# Only the bulky DATA artifacts are excluded. READMEs, figures (*.png) and config
+# stamps under outputs/ ARE committed so experiment docs render on GitHub, and the
+# experiment visual aids under experiments/*/assets/ are committed too.
+# =============================================================================
+
+# --- Bulky data bundles (regenerated on demand) ---
+*.npz
+*.npy
+*.nc
+*.pkl
+*.grib
+*.grb
+
+# --- Per-iteration evolution frames & animations ---
+# The full per-iteration frame set and the GIFs stay on disk but are NOT uploaded:
+# only the first/last frame of each sequence is committed (force-added in the commit),
+# alongside growth_curves.png. This keeps the repo light (frames+GIFs are ~220 MB).
+*.gif
+**/plots/evolution/*/*.png
+
+# --- Logs ---
+*.log
+nohup.out
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# --- OS / editor ---
+.DS_Store
+*.swp
+
+# NOTE: outputs/ is intentionally NOT ignored wholesale. Each run keeps its
+# README.md, config_used.yaml and plots/*.png; only the heavy bundles above are
+# excluded. Do not add `outputs/` or `*.png` here.

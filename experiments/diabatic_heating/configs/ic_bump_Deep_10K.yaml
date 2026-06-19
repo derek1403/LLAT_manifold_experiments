@@ -1,0 +1,13 @@
+# One-shot Gaussian heating bump on the upper-T column at t=0, then a short
+# forward integration. Faithful to idealized_exp/LLAT_add_heat_onestep.py
+# (Deep profile, +10 K peak, sigma = 5 grid points).
+extends: base.yaml
+tag: ic_bump_Deep_10K
+mode: forward
+fore_hour: 6
+perturbation:
+  type: heating
+  injection: ic
+  amp_K: 10.0
+  heat_type: Deep        # Deep | Shallow | Stratiform
+  sigma: 5.0             # grid points

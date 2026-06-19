@@ -1,0 +1,49 @@
+# =============================================================================
+# DLAMPty / FCNv2 variable layout — the single source of truth for channel
+# indices used by perturbations and by the static-variable lock.
+#
+# Authoritative source: the DLAMPty model yaml (v57_5d.yaml) in Part 1's weights:
+#   upper_vars   : ['u','v','t','q','z','w']                       (6)
+#   surface_vars : ['u10','v10','t2m','d2m','msl','sp','tcwv','tp',
+#                   'mtnlwrf','sst_filled','f','solar','hgt','landmask',
+#                   'diurnal_sin','diurnal_cos','doy_sin','doy_cos']  (18)
+#   pressure_levels: [50,100,150,200,250,300,400,500,600,700,850,925,1000]
+#
+# Array conventions (output of DLAMPty.IC_from_xarray_to_npy):
+#   upper   : (nz=13, ny=81, nx=81, nvar=6)   -> variable on the LAST axis
+#   surface : (ny=81, nx=81, nvar>=18)        -> variable on the LAST axis;
+#             with ingest_space_info=True the final two channels are lat/lon
+#             (addressed as -1, -2).
+# =============================================================================
+
+dlampty:
+  upper_vars:   ['u', 'v', 't', 'q', 'z', 'w']
+  surface_vars: ['u10', 'v10', 't2m', 'd2m', 'msl', 'sp', 'tcwv', 'tp',
+                 'mtnlwrf', 'sst_filled', 'f', 'solar', 'hgt', 'landmask',
+                 'diurnal_sin', 'diurnal_cos', 'doy_sin', 'doy_cos']
+  pressure_levels: [50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+
+  # Static / non-prognostic surface channels. During a perturbation run these are
+  # reset to the control after every DLAMPty step and zeroed in the perturbation
+  # delta, UNLESS an experiment explicitly claims them (dynamic masking). Listed
+  # by name; resolved to indices via `surface_vars`. The trailing space-info
+  # channels (lat/lon) are locked separately via `space_info_indices`.
+  static_surface_vars: ['sst_filled', 'f', 'solar', 'hgt', 'landmask',
+                        'diurnal_sin', 'diurnal_cos', 'doy_sin', 'doy_cos']
+  # Negative indices for the appended lat/lon channels (ingest_space_info=True).
+  space_info_indices: [-1, -2]
+
+# FCNv2 global field channel layout (721 x 1440), only what the experiments touch.
+fcnv2:
+  # Channel index of 2 m temperature (2t) — the diabatic-heating injection target.
+  t2m_index: 4
+  # Channel index of mean-sea-level pressure (for TC-centre tracking).
+  msl_index: 6
+
+# Domain / grid constants shared by perturbation builders.
+grid:
+  # DLAMPty sub-domain extracted from the combined IC (xarray isel ranges).
+  ic_lat_slice: [40, 121]
+  ic_lon_slice: [40, 121]
+  dlampty_npts: 81          # square sub-domain side (ny == nx)
+  resolution_deg: 0.25

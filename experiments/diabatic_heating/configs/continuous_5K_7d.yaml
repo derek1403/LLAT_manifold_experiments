@@ -1,0 +1,16 @@
+# Continuous (time-marching) perturbation evolution on the single 3 h DLAMPty
+# operator M. Control and perturbed trajectories advance together; the heating
+# forcing f is added each step. total_steps / forcing_steps are in 3-hour steps
+# (40 steps = 5 days; here forced throughout).
+extends: base.yaml
+tag: continuous_5K
+mode: continuous
+total_steps: 40
+perturbation:
+  type: heating
+  injection: per_step
+  amp_K: 5.0
+  heat_type: Deep
+  forcing_steps: 40       # forced every step of the run
+  amp_mode: spread        # per-step amp = amp_K / forcing_steps
+  sigma: 5.0

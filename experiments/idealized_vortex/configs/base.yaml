@@ -1,0 +1,8 @@
+category: idealized_vortex
+tc_id: "202518W"
+init_time: "2025091700"
+mode: forward
+fore_hour: 120
+perturbation:
+  type: vortex
+  vortex_name: idealize_vortex   # scaffold; apply_ic not yet implemented

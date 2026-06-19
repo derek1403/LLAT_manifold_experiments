@@ -1,0 +1,29 @@
+# =============================================================================
+# Path configuration for the LLAT idealized-experiment repo (Part 2).
+# EDIT PATHS HERE ONLY — no path literals in the Python code.
+#
+# Repo-relative paths (no leading "/") resolve against this repo's root.
+# Absolute paths (leading "/") are used as-is.
+#
+# NOTE on model weights: the coupled models are loaded through Part 1's
+# `regional_couple` package, which resolves FCNv2/DLAMPty weights from *its own*
+# config/paths.yaml. We do not re-declare weight paths here.
+# =============================================================================
+
+# --- Initial-condition sources -----------------------------------------------
+# These are existing background fields produced by the operational pipeline.
+# Default to the original RegionalCouple_AI tree where they already live; point
+# them at the Part 1 `work/` dirs once you regenerate ICs there.
+ic:
+  # Global FCNv2 analysis IC:  <fcnv2_ic_root>/<TC_ID>/for_FCNV2/analysis_<YYYYMMDDHH>.npz
+  fcnv2_ic_root: /wk2/pc/AI_models/RegionalCouple_AI/oneway_FCNv2_output
+  # DLAMPty combined NetCDF IC: <dlampty_ic_root>/<YYYY>/<TC_ID>/<TC_ID>_<YYYYMMDDHH>_combined.nc
+  dlampty_ic_root: /wk2/pc/AI_models/RegionalCouple_AI/ERA5_DLAMPty
+  # JMA best-track CSVs: <jma_track_root>/<YYYY>/<TC_ID>.csv
+  jma_track_root: /wk2/pc/AI_models/RegionalCouple_AI/TC_JMA
+
+# --- Output root -------------------------------------------------------------
+# Per-experiment outputs land under <output_root>/<category>/<experiment_tag>/.
+# `outputs/` is git-ignored; symlink it to bulk storage if needed.
+output:
+  root: outputs

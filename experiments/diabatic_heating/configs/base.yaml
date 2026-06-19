@@ -1,0 +1,5 @@
+# Shared defaults for the diabatic-heating experiment category.
+# Per-tuning configs `extends: base.yaml` and override mode + perturbation.
+category: diabatic_heating
+tc_id: "202518W"
+init_time: "2025091700"

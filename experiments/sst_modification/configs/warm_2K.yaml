@@ -1,0 +1,9 @@
+# Uniform +2 K SST over the DLAMPty sub-domain, held fixed (dynamic masking
+# releases sst_filled from the static lock), integrated forward 5 days.
+extends: base.yaml
+tag: warm_2K
+mode: forward
+fore_hour: 120
+perturbation:
+  type: sst
+  delta_K: 2.0

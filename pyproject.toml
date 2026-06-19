@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llat_manifold"
+version = "0.1.0"
+description = "Idealized perturbation experiments probing the gap between the LLAT (DLAMPty/coupled FCNv2) model manifold and the physical world (Part 2)."
+requires-python = ">=3.10"
+# Core-model code is reused from the operational repo (Part 1) via an editable
+# install of `regional_couple`:
+#     pip install -e ../claude_RegionalCouple_AI
+# That package carries the heavy CUDA/onnx stack, so it is not redeclared here.
+dependencies = [
+    "numpy",
+    "xarray",
+    "pandas",
+    "pyyaml",
+    "scipy",
+    "matplotlib",
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["llat_manifold*"]

@@ -1,0 +1,17 @@
+# Python deps for the LLAT idealized-experiment repo (Part 2).
+# Tested in the `pangu_env` conda environment (Python 3.11), same as Part 1.
+#
+# The coupled models (FCNv2 + DLAMPty) and their heavy CUDA/onnx stack come from
+# the operational repo, installed editable:
+#     pip install -e ../claude_RegionalCouple_AI
+# (which itself documents torch / onnxruntime / pysolar etc.)
+
+numpy
+xarray
+pandas
+pyyaml
+scipy
+
+# Diagnostics / plotting
+matplotlib
+metpy            # PV, vorticity and other derived dynamical fields

@@ -1,0 +1,7 @@
+category: thermo_restriction
+tc_id: "202518W"
+init_time: "2025091700"
+mode: continuous
+total_steps: 40
+perturbation:
+  type: none          # scaffold: replace with a ThermoRestriction perturbation

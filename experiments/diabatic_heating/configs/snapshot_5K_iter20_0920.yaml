@@ -1,0 +1,15 @@
+# Same snapshot experiment but initialised from 2025092000 (a stronger RAGASA stage)
+# to check the perturbation response on a more intense vortex.
+extends: base.yaml
+tag: snapshot_5K_iter20
+init_time: "2025092000"
+mode: snapshot
+iterations: 20
+perturbation:
+  type: heating
+  injection: per_step
+  amp_K: 5.0
+  heat_type: Deep
+  forcing_steps: 20
+  amp_mode: each
+  sigma: 5.0
