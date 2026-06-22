@@ -32,7 +32,13 @@ mature-stage anvil), **Shallow** (low-level peak — shallow convection).
 - **Hydrostatic balance:** a warm anomaly lowers the column thickness gradient aloft
   and raises geopotential above the heating; the surface should respond with a
   pressure fall under the heating. Check that Δθ and Δz are hydrostatically
-  consistent.
+  consistent. `hydrostatic.py` quantifies the **non-hydrostatic degree** two ways:
+  *Strategy 1* forms the vertical-momentum residual `ε = |Dw/Dt|/g` (steady-state,
+  spherical, with the `−(u²+v²)/A` curvature term; `∂w/∂t` neglected in `snapshot`
+  mode) — ε≈10⁻⁴–10⁻³ flags a hydrostatic column, ε→10⁻¹ a non-hydrostatic core;
+  *Strategy 2* checks the isobaric hydrostatic equation `∂Φ/∂P = −RT/P` as a z↔T
+  consistency test. Both draw a pressure-on-y profile (domain + eyewall) **and** an
+  azimuthal-mean radius–height map; the evolution suite also animates the maps.
 - **Gradient-wind / geostrophic adjustment:** the mass perturbation cannot stay
   unbalanced. Within the Rossby radius of deformation it radiates gravity waves and
   settles toward gradient-wind balance; outside it, a balanced vortex response. The
@@ -66,7 +72,10 @@ plots/          PV_Theta_tengential.png   (PV–θ + heating profile + tangentia
                 div_Theta_uv.png          (divergence–θ + heating profile)
                 wind_balance_profile.png  (LLAT vs gradient vs geostrophic wind)
                 fields.png                (Part 1 5-row 2D field grid)
+                hydrostatic_eps_profile.png / _xsection.png      (Strategy 1: ε=|Dw/Dt|/g non-hydrostatic check)
+                hydrostatic_thermo_profile.png / _xsection.png   (Strategy 2: ∂Φ/∂P vs −RT/P z↔T consistency)
                 hovmoller_msl.png         (radius–time gravity-wave Hovmöller; continuous runs)
+                evolution/                per-iteration frames + GIFs (incl. hydrostatic_eps/_thermo) + growth_curves.png
 config_used.yaml
 README.md       auto-generated: data source, run info, inline figures
 ```
@@ -82,10 +91,16 @@ python -m llat_manifold.diagnostics.divergence   $RUN/data/<bundle>.npz --out $R
 python -m llat_manifold.diagnostics.wind_profile $RUN/data/<bundle>.npz --out $RUN/plots/wind_bal.png
 python -m llat_manifold.diagnostics.fields       $RUN/data/<bundle>.npz --out $RUN/plots/fields.png
 python -m llat_manifold.diagnostics.waves        $RUN/data --var msl     --out $RUN/plots/hov.png
+# Non-hydrostatic checks (writes *_profile.png + *_xsection.png for each strategy):
+python -m llat_manifold.diagnostics.hydrostatic  $RUN/data/<bundle>.npz --baseline $RUN/data/background.npz \
+       --out-dir $RUN/plots --strategy both
+# Per-iteration evolution frames + GIFs (e.g. just the two hydrostatic maps):
+python -m llat_manifold.diagnostics.evolution    $RUN --diag hydro_eps,hydro_thermo
 ```
 
 For semi-linear (δ) bundles, pass the matching control to get physical Δ-PV:
-`--baseline <control_bundle>.npz --add-to-baseline`.
+`--baseline <control_bundle>.npz --add-to-baseline`. The hydrostatic checks instead take
+`--baseline <background>.npz` to reconstruct the absolute state ū+δ (snapshot mode).
 
 ## Committed runs (outputs index)
 

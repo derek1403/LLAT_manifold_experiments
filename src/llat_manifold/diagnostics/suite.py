@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .. import io
 from . import load_stamp
-from . import pv, divergence, fields, waves, wind_profile
+from . import pv, divergence, fields, waves, wind_profile, hydrostatic
 
 
 def _key(p: Path) -> int:
@@ -85,6 +85,9 @@ def standard_plots(run_dir) -> list[str]:
     _try(pv.plot_wind_circulation_cross_section, "wind_circulation.png", abs_rep)
     _try(wind_profile.plot_wind_balance_profile, "wind_balance_profile.png", abs_rep)
     _try(fields.plot_fields, "fields.png", abs_rep)
+    # Non-hydrostatic balance checks (each also emits a *_xsection.png).
+    _try(hydrostatic.plot_nonhydrostatic_epsilon, "hydrostatic_eps_profile.png", abs_rep)
+    _try(hydrostatic.plot_hydrostatic_thermo, "hydrostatic_thermo_profile.png", abs_rep)
     # Gravity-wave propagation uses the δ field directly.
     if len(bundles) >= 3 and mode in ("continuous", "forward"):
         _try(waves.hovmoller, "hovmoller_msl.png", data, surface_var="msl")

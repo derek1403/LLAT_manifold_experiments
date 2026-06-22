@@ -24,7 +24,7 @@ import numpy as np
 
 from .. import io, layout
 from . import experiment_title, load_stamp
-from . import pv, divergence, fields, wind_profile
+from . import pv, divergence, fields, wind_profile, hydrostatic
 # Reuse the suite's bundle helpers rather than re-deriving them.
 from .suite import _key, _resolve_baseline, _absolute_bundle
 
@@ -35,8 +35,12 @@ _DIAGS = {
     "wind_circ": ("wind_circulation", True),
     "wind_bal": ("wind_balance", True),
     "fields": ("fields", True),
+    # Non-hydrostatic checks: animate the spatially-rich r–z map (the profile is the
+    # static end-state figure). Both need the absolute ū+δ state.
+    "hydro_eps": ("hydrostatic_eps", True),
+    "hydro_thermo": ("hydrostatic_thermo", True),
 }
-_DEFAULT = ("pv", "div", "wind_circ", "wind_bal", "fields")
+_DEFAULT = ("pv", "div", "wind_circ", "wind_bal", "fields", "hydro_eps", "hydro_thermo")
 
 
 def _iter_label(path: Path) -> str:
@@ -106,6 +110,12 @@ def _render_frames(diag: str, bundles, evo: Path, baseline, add, data: Path) -> 
                 try:
                     if diag == "wind_circ":
                         fig = pv.plot_wind_circulation_cross_section(ab, out_png=None)
+                    elif diag == "hydro_eps":
+                        fig = hydrostatic.plot_nonhydrostatic_epsilon(
+                            ab, out_png=None, which="xsection")
+                    elif diag == "hydro_thermo":
+                        fig = hydrostatic.plot_hydrostatic_thermo(
+                            ab, out_png=None, which="xsection")
                     else:  # wind_bal
                         fig = wind_profile.plot_wind_balance_profile(ab, out_png=None)
                 finally:
