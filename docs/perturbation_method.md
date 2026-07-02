@@ -39,13 +39,7 @@ The phrase *semi-linear* (equivalently a *tangent-linear* treatment) refers to
 resulting linear operator. Formally, write the Jacobian of $M$ at the control state $I$
 as
 
-$$\mathbf{J} \equiv \left.\frac{\partial M}{\partial x}\right|_{x=I},$$
-
-$$ \mathbf{ J } \equiv \left. \frac{ \partial M }{ \partial x }\right|_{ x=I },$$
-
-這是行內向量 $`\mathbf{x}`$ 的正確寫法。
-這是行內向量 $ \mathbf{x} $ 的正確寫法。
-這是行內向量 <code>$\mathbf{x}$</code> 的正確寫法。
+$$\boldsymbol{J} \equiv \left.\frac{\partial M}{\partial x}\right|_{x=I},$$
 
 then a tangent-linear method approximates the evolution of a perturbation $\delta$ by
 
@@ -54,9 +48,6 @@ $$\delta' \approx \mathbf{J}\,\delta \qquad\text{(tangent-linear / "semi-linear"
 **We never do this.** What the driver computes is the *exact finite difference*
 
 $$\boxed{\delta' = M(I+\delta) - M(I)} \quad \text{(2.1)}$$
-
-```math
-\(\boxed{\delta' = \mathbf{J}\,\delta + \underbrace{\tfrac{1}{2}\,\delta^{\top} \mathbf{H}\,\delta + \cdots}_{=\,O(\lVert\delta\rVert^2)}} . \quad \text{(2.2)} \%\%\)MAGIT_PARSER_PROTECT%%```
 
 
 with the **full nonlinear** operator $M$ applied to both states. Expanding (2.1) in a
