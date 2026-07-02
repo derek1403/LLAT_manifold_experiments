@@ -47,16 +47,17 @@ $$\delta' \approx \mathbf{J}\,\delta \qquad\text{(tangent-linear / "semi-linear"
 
 **We never do this.** What the driver computes is the *exact finite difference*
 
-$$\boxed{\delta' = M(I+\delta) - M(I)}\tag{2.1}$$
+$$\boxed{\delta' = M(I+\delta) - M(I)}\text{(2.1)}$$
 
 with the **full nonlinear** operator $M$ applied to both states. Expanding (2.1) in a
 Taylor series about $I$,
 
-$$M(I+\delta) = M(I) + \mathbf{J}\,\delta + \tfrac12\,\delta^{\!\top} \mathbf{H}\,\delta + \cdots,\qquad \mathbf{H} \equiv \left.\frac{\partial^2 M}{\partial x^2}\right|_I,$$
+$$M(I+\delta) = M(I) + \mathbf{J}\,\delta + \tfrac12\,\delta^{\top} \mathbf{H}\,\delta + \cdots,\qquad \mathbf{H} \equiv \left.\frac{\partial^2 M}{\partial x^2}\right|_I,$$
 
 so
 
-$$\delta' = \mathbf{J}\,\delta + \underbrace{\tfrac12\,\delta^{\!\top} \mathbf{H}\,\delta + \cdots}_{=\,O(\lVert\delta\rVert^2)} . \tag{2.2}$$
+$$\delta' = \mathbf{J}\,\delta + \underbrace{\tfrac12\,\delta^{\top} \mathbf{H}\,\delta + \cdots}_{=\,O(\lVert\delta\rVert^2)} . \text{(2.2)}$$
+
 
 The tangent-linear method keeps only the first term and **discards the
 $O(\lVert\delta\rVert^2)$ remainder**; equation (2.1) keeps it. Two further reasons
@@ -92,7 +93,7 @@ $$\begin{aligned}
 u'_1 &= M(u_0 + f) - \bar u, \\
 u'_i &= M(\bar u + u'_{i-1} + f) - \bar u \quad (i\ge 2).
 \end{aligned}
-\tag{3.1}$$
+\text{(3.1)}$$
 
 That is: the base inside $M$ is the true initial field on the first iteration and the
 once-evolved background $\bar u$ thereafter, and the departure is always measured from
@@ -119,9 +120,9 @@ control trajectory $I_n$ and the perturbation $\delta_n$ both march:
 
 $$\begin{aligned}
 I_{n+1} &= M_n(I_n), \\
-\delta_{n+1} &= M_n\!\left(I_n+\delta_n + f_n\right) - M_n(I_n),
+\delta_{n+1} &= M_n\left(I_n+\delta_n + f_n\right) - M_n(I_n),
 \end{aligned}
-\tag{3.2}$$
+\text{(3.2)}$$
 
 where $f_n$ is the per-step forcing added *before* synthesizing
 $A_n = I_n+\delta_n+f_n$ (e.g. continuous heating), and $M_n$ denotes $M$ at valid
@@ -154,7 +155,7 @@ $$\begin{aligned}
 \delta p' &= f(p_I+\delta p, s_I+\delta s) - f(p_I,s_I) \\
 &= \frac{\partial f}{\partial p}\,\delta p + \underbrace{\frac{\partial f}{\partial s}\,\delta s}_{\text{spurious if }\delta s\neq 0} + O(\lVert(\delta p,\delta s)\rVert^2).
 \end{aligned}
-\tag{4.1}$$
+\text{(4.1)}$$
 
 If the perturbed run's static channels are allowed to differ from the control's
 ($\delta s\neq 0$) — through round-off, or simply because they were not reset — then
