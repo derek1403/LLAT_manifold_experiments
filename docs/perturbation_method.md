@@ -41,13 +41,22 @@ as
 
 $$\mathbf{J} \equiv \left.\frac{\partial M}{\partial x}\right|_{x=I},$$
 
+$$ \mathbf{ J } \equiv \left. \frac{ \partial M }{ \partial x }\right|_{ x=I },$$
+
+這是行內向量 $`\mathbf{x}`$ 的正確寫法。
+這是行內向量 $\mathbf{x}$ 的正確寫法。
+
 then a tangent-linear method approximates the evolution of a perturbation $\delta$ by
 
 $$\delta' \approx \mathbf{J}\,\delta \qquad\text{(tangent-linear / "semi-linear")}.$$
 
 **We never do this.** What the driver computes is the *exact finite difference*
 
-$$\boxed{\delta' = M(I+\delta) - M(I)}\text{(2.1)}$$
+$$\boxed{\delta' = M(I+\delta) - M(I)} \quad \text{(2.1)}$$
+
+```math
+\(\boxed{\delta' = \mathbf{J}\,\delta + \underbrace{\tfrac{1}{2}\,\delta^{\top} \mathbf{H}\,\delta + \cdots}_{=\,O(\lVert\delta\rVert^2)}} . \quad \text{(2.2)} \%\%\)MAGIT_PARSER_PROTECT%%```
+
 
 with the **full nonlinear** operator $M$ applied to both states. Expanding (2.1) in a
 Taylor series about $I$,
@@ -56,7 +65,7 @@ $$M(I+\delta) = M(I) + \mathbf{J}\,\delta + \tfrac12\,\delta^{\top} \mathbf{H}\,
 
 so
 
-$$\delta' = \mathbf{J}\,\delta + \underbrace{\tfrac12\,\delta^{\top} \mathbf{H}\,\delta + \cdots}_{=\,O(\lVert\delta\rVert^2)} . \text{(2.2)}$$
+$$\delta' = \mathbf{J}\,\delta + \underbrace{\tfrac12\,\delta^{\top} \mathbf{H}\,\delta + \cdots}_{=\,O(\lVert\delta\rVert^2)} . \quad \text{(2.2)}$$
 
 
 The tangent-linear method keeps only the first term and **discards the
@@ -92,7 +101,7 @@ $$\begin{aligned}
 \bar u &= M(u_0), \\
 u'_1 &= M(u_0 + f) - \bar u, \\
 u'_i &= M(\bar u + u'_{i-1} + f) - \bar u \quad (i\ge 2).
-\end{aligned}
+\end{aligned} \quad 
 \text{(3.1)}$$
 
 That is: the base inside $M$ is the true initial field on the first iteration and the
@@ -121,7 +130,7 @@ control trajectory $I_n$ and the perturbation $\delta_n$ both march:
 $$\begin{aligned}
 I_{n+1} &= M_n(I_n), \\
 \delta_{n+1} &= M_n\left(I_n+\delta_n + f_n\right) - M_n(I_n),
-\end{aligned}
+\end{aligned} \quad
 \text{(3.2)}$$
 
 where $f_n$ is the per-step forcing added *before* synthesizing
@@ -154,7 +163,7 @@ Now form the perturbation response of the prognostic part, expanding about $(p_I
 $$\begin{aligned}
 \delta p' &= f(p_I+\delta p, s_I+\delta s) - f(p_I,s_I) \\
 &= \frac{\partial f}{\partial p}\,\delta p + \underbrace{\frac{\partial f}{\partial s}\,\delta s}_{\text{spurious if }\delta s\neq 0} + O(\lVert(\delta p,\delta s)\rVert^2).
-\end{aligned}
+\end{aligned} \quad
 \text{(4.1)}$$
 
 If the perturbed run's static channels are allowed to differ from the control's
