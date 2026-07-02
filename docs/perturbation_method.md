@@ -44,7 +44,8 @@ $$\mathbf{J} \equiv \left.\frac{\partial M}{\partial x}\right|_{x=I},$$
 $$ \mathbf{ J } \equiv \left. \frac{ \partial M }{ \partial x }\right|_{ x=I },$$
 
 這是行內向量 $`\mathbf{x}`$ 的正確寫法。
-這是行內向量 $\mathbf{x}$ 的正確寫法。
+這是行內向量 $ \mathbf{x} $ 的正確寫法。
+這是行內向量 <code>$\mathbf{x}$</code> 的正確寫法。
 
 then a tangent-linear method approximates the evolution of a perturbation $\delta$ by
 
