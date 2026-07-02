@@ -19,7 +19,7 @@ from pathlib import Path
 
 from .. import io
 from . import load_stamp
-from . import pv, divergence, fields, waves, wind_profile, hydrostatic
+from . import pv, divergence, fields, waves, wind_profile, hydrostatic, ike
 
 
 def _key(p: Path) -> int:
@@ -88,6 +88,8 @@ def standard_plots(run_dir) -> list[str]:
     # Non-hydrostatic balance checks (each also emits a *_xsection.png).
     _try(hydrostatic.plot_nonhydrostatic_epsilon, "hydrostatic_eps_profile.png", abs_rep)
     _try(hydrostatic.plot_hydrostatic_thermo, "hydrostatic_thermo_profile.png", abs_rep)
+    # Perturbation IKE response: one summary curve (ΔIKE vs iteration) across all bundles.
+    _try(ike.plot_ike_perturbation, "ike_perturbation.png", run_dir)
     # Gravity-wave propagation uses the δ field directly.
     if len(bundles) >= 3 and mode in ("continuous", "forward"):
         _try(waves.hovmoller, "hovmoller_msl.png", data, surface_var="msl")

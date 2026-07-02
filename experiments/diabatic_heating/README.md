@@ -47,6 +47,10 @@ mature-stage anvil), **Shallow** (low-level peak — shallow convection).
   maximum and destroys it above (∂PV/∂t ∝ ∂(heating)/∂z along the absolute-vorticity
   vector). A physically faithful model should build a low-level PV tower under
   sustained heating. Compare `pv.py` cross-sections of control vs perturbed.
+- **Integrated kinetic energy response:** `ike.py` reuses the Part-1 IKE core to ask how
+  much the storm's IKE changes under the perturbation — `ΔIKE = IKE(ū+δ) − IKE(ū)` split
+  into total / inner (r<200 km) / outer (r≥200 km), plotted vs iteration (one summary
+  curve per run, same IKE definition as the operational dashboard).
 
 ## How it is implemented
 
@@ -74,6 +78,7 @@ plots/          PV_Theta_tengential.png   (PV–θ + heating profile + tangentia
                 fields.png                (Part 1 5-row 2D field grid)
                 hydrostatic_eps_profile.png / _xsection.png      (Strategy 1: ε=|Dw/Dt|/g non-hydrostatic check)
                 hydrostatic_thermo_profile.png / _xsection.png   (Strategy 2: ∂Φ/∂P vs −RT/P z↔T consistency)
+                ike_perturbation.png      (ΔIKE total/inner/outer vs iteration; one curve per run)
                 hovmoller_msl.png         (radius–time gravity-wave Hovmöller; continuous runs)
                 evolution/                per-iteration frames + GIFs (incl. hydrostatic_eps/_thermo) + growth_curves.png
 config_used.yaml
@@ -96,6 +101,8 @@ python -m llat_manifold.diagnostics.hydrostatic  $RUN/data/<bundle>.npz --baseli
        --out-dir $RUN/plots --strategy both
 # Per-iteration evolution frames + GIFs (e.g. just the two hydrostatic maps):
 python -m llat_manifold.diagnostics.evolution    $RUN --diag hydro_eps,hydro_thermo
+# Perturbation IKE response (ΔIKE total/inner/outer vs iteration; one figure per run):
+python -m llat_manifold.diagnostics.ike          $RUN --out $RUN/plots/ike_perturbation.png
 ```
 
 For semi-linear (δ) bundles, pass the matching control to get physical Δ-PV:

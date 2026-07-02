@@ -74,7 +74,8 @@ src/llat_manifold/
   driver.py      snapshot / continuous / forward modes + locking
   layout.py      variable indices, default lock, active_lock_indices (dynamic mask)
   perturbations/ Perturbation ABC + heating, sst, terrain, vortex, moisture, wind + registry
-  diagnostics/   pv, divergence, wind_profile, response, waves, modal(reserved)
+  diagnostics/   pv, divergence, wind_profile, hydrostatic, ike, waves, fields,
+                 response, modal(reserved) — see diagnostics/README.md for how each is computed
 experiments/   per-category README + configs (Base + Overrides via `extends:`)
 scripts/run_experiment.py
 docs/perturbation_method.md   tests/test_offline.py
