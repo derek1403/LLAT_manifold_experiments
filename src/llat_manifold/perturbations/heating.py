@@ -22,6 +22,11 @@ from .base import Perturbation, StepContext
 _HEATING_PMIN, _HEATING_PMAX = 200, 1000
 
 
+def _amp_tag(amp_K: float) -> str:
+    """Filename-safe amplitude tag: 5.0 -> '5K' (unchanged), 5.5 -> '5p5K'."""
+    return f"{amp_K:g}".replace(".", "p").replace("-", "m") + "K"
+
+
 def vertical_profile(heat_type: str, pressure_levels) -> np.ndarray:
     """Vertical weight V(P) per level (Deep / Stratiform / Shallow), 0 outside 200–1000 hPa."""
     p = np.asarray(pressure_levels, dtype=float)
@@ -64,10 +69,11 @@ class HeatingPerturbation(Perturbation):
         self.forcing_steps = int(forcing_steps)
         self.amp_mode = amp_mode
         self.npts = npts or int(layout.config.layout()["grid"]["dlampty_npts"])
+        amp_tag = _amp_tag(self.amp_K)
         if injection == "ic":
-            self.param_tag = f"{int(round(amp_K)):03d}K_{heat_type}_icbump"
+            self.param_tag = f"{amp_tag:0>4s}_{heat_type}_icbump"
         else:
-            self.param_tag = f"{int(round(amp_K))}K_{heat_type}_{forcing_steps}steps"
+            self.param_tag = f"{amp_tag}_{heat_type}_{forcing_steps}steps"
 
     def _unit_field(self, nz: int) -> np.ndarray:
         """Unit-amplitude heating field (nz, ny, nx) = V(P) ⊗ horizontal Gaussian."""

@@ -39,7 +39,7 @@ The phrase *semi-linear* (equivalently a *tangent-linear* treatment) refers to
 resulting linear operator. Formally, write the Jacobian of $M$ at the control state $I$
 as
 
-$$\boldsymbol{J} \equiv \left.\frac{\partial M}{\partial x}\right|_{x=I},$$
+$$\mathbf{J} \equiv \left.\frac{\partial M}{\partial x}\right|_{x=I},$$
 
 then a tangent-linear method approximates the evolution of a perturbation $\delta$ by
 

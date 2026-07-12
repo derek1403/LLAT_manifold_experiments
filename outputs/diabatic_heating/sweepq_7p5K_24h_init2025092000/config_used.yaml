@@ -1,0 +1,20 @@
+resolved_config:
+  category: diabatic_heating
+  tc_id: 202518W
+  init_time: '2025092000'
+  mode: continuous
+  total_steps: 8
+  tag: sweepq_7p5K_24h
+  lock_upper_vars:
+  - q
+  perturbation:
+    type: heating
+    injection: per_step
+    amp_K: 7.5
+    heat_type: Deep
+    forcing_steps: 8
+    amp_mode: spread
+    sigma: 5.0
+provenance:
+  stamped_at_utc: '2026-07-12T10:54:32.041090Z'
+  llat_manifold_git: a2ea310

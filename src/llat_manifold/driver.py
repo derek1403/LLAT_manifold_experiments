@@ -81,6 +81,22 @@ def _f32(*arrs):
     return tuple(np.ascontiguousarray(a, dtype=np.float32) for a in arrs)
 
 
+def _upper_lock_indices(cfg):
+    """Upper-air channels whose δ is pinned to the control every step.
+
+    ``lock_upper_vars: [q]`` denies the perturbation any moisture co-evolution: the
+    perturbed trajectory re-enters each step with the control's q (δq ≡ 0), so the
+    response that survives is the part *not* mediated by the moisture channel — a
+    probe of how tightly the manifold binds thermodynamics to moisture.
+    """
+    return [layout.upper_index(v) for v in (cfg.get("lock_upper_vars") or [])]
+
+
+def _zero_upper_locked(d_up, up_lock) -> None:
+    for idx in up_lock:
+        d_up[:, :, :, idx] = 0.0
+
+
 def _ctx(state, fore_i, lead_hr):
     return StepContext(fore_i=fore_i, lead_hr=lead_hr, initial_time=state.initial_time,
                        dlam_lats=state.dlam_lats, dlam_lons=state.dlam_lons)
@@ -131,6 +147,7 @@ def run(cfg: dict, dlampty, out_dir) -> list[str]:
 # --------------------------------------------------------------------------- #
 def _run_snapshot(cfg, dlampty, out_dir, state, pert, active_idx):
     iterations = int(cfg["iterations"])
+    up_lock = _upper_lock_indices(cfg)
     init_s = state.initial_time.strftime("%Y%m%d%H")
 
     u0_up, u0_sfc = _f32(state.upper, state.surface)
@@ -142,6 +159,7 @@ def _run_snapshot(cfg, dlampty, out_dir, state, pert, active_idx):
 
     d_up, d_sfc = _ic_delta(state, pert, active_idx)
     d_up, d_sfc = _f32(d_up, d_sfc)
+    _zero_upper_locked(d_up, up_lock)
 
     saved = []
     for it in range(1, iterations + 1):
@@ -157,6 +175,7 @@ def _run_snapshot(cfg, dlampty, out_dir, state, pert, active_idx):
         d_up = u_up - ubar_up
         d_sfc = u_sfc - ubar_sfc
         _zero_locked(d_sfc, active_idx)
+        _zero_upper_locked(d_up, up_lock)
 
         base = io.delta_basename("snapshot", pert.param_tag, init_s, it)
         base = base.replace(f"lead{it:03d}hr", f"iter{it:03d}")
@@ -168,10 +187,12 @@ def _run_snapshot(cfg, dlampty, out_dir, state, pert, active_idx):
 
 def _run_continuous(cfg, dlampty, out_dir, state, pert, active_idx):
     total_steps = int(cfg["total_steps"])
+    up_lock = _upper_lock_indices(cfg)
     init_s = state.initial_time.strftime("%Y%m%d%H")
 
     I_up, I_sfc = _f32(state.upper, state.surface)
     d_up, d_sfc = _f32(*_ic_delta(state, pert, active_idx))
+    _zero_upper_locked(d_up, up_lock)
 
     saved = []
     for fore_i in range(1, total_steps + 1):
@@ -190,6 +211,7 @@ def _run_continuous(cfg, dlampty, out_dir, state, pert, active_idx):
         d_up = Ap_up - Ip_up
         d_sfc = Ap_sfc - Ip_sfc
         _zero_locked(d_sfc, active_idx)
+        _zero_upper_locked(d_up, up_lock)
         I_up, I_sfc = Ip_up, Ip_sfc
 
         base = io.delta_basename("continuous", pert.param_tag, init_s, lead_hr)
@@ -202,6 +224,9 @@ def _run_continuous(cfg, dlampty, out_dir, state, pert, active_idx):
 
 
 def _run_forward(cfg, dlampty, out_dir, state, pert, active_idx):
+    if _upper_lock_indices(cfg):
+        raise ValueError("lock_upper_vars needs a control trajectory to pin δ to; "
+                         "use continuous or snapshot mode")
     fore_hour = int(cfg["fore_hour"])
     n_steps = fore_hour // STEP_HOURS
     init_s = state.initial_time.strftime("%Y%m%d%H")

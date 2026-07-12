@@ -138,6 +138,38 @@ def test_snapshot_math():
     print("ok test_snapshot_math")
 
 
+def test_upper_lock_q():
+    """lock_upper_vars: [q] pins δq to 0 each step while the T response is untouched."""
+    class _MoistFake:
+        """Moisture co-evolves with temperature (q += T), so a T bump grows a δq."""
+        def predict_one_step(self, up, sfc):
+            out = up.copy()
+            out[..., layout.upper_index("q")] += up[..., layout.upper_index("t")]
+            return out, sfc.copy()
+
+        def changing_additional_information(self, up, sfc, t):
+            return up, sfc
+
+    state = _fake_state()
+    pert = HeatingPerturbation(injection="per_step", amp_K=4.0, heat_type="Deep",
+                               forcing_steps=2, amp_mode="spread", sigma=5.0)
+    active = layout.active_lock_indices(pert.claimed_static_vars())
+    q, t = layout.upper_index("q"), layout.upper_index("t")
+    with tempfile.TemporaryDirectory() as d:
+        for sub in ("free", "lock"):
+            (Path(d) / sub).mkdir()
+        free = driver._run_continuous({"total_steps": 1}, _MoistFake(),
+                                      Path(d) / "free", state, pert, active)
+        lock = driver._run_continuous({"total_steps": 1, "lock_upper_vars": ["q"]},
+                                      _MoistFake(), Path(d) / "lock", state, pert, active)
+        up_f, _ = io.load_delta_bundle(free[0])
+        up_l, _ = io.load_delta_bundle(lock[0])
+        assert up_f[..., q].max() > 1.0, "moist run should grow a δq"
+        assert np.all(up_l[..., q] == 0.0), "locked run must keep δq = 0"
+        assert np.allclose(up_l[..., t], up_f[..., t]), "δT must be untouched by the q lock"
+    print("ok test_upper_lock_q")
+
+
 if __name__ == "__main__":
     test_layout_indices()
     test_active_lock_default_and_masked()
@@ -145,4 +177,5 @@ if __name__ == "__main__":
     test_continuous_locking_and_forcing()
     test_sst_dynamic_mask()
     test_snapshot_math()
+    test_upper_lock_q()
     print("\nALL OFFLINE TESTS PASSED")

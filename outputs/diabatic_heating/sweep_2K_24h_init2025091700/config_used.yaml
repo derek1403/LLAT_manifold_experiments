@@ -1,0 +1,18 @@
+resolved_config:
+  category: diabatic_heating
+  tc_id: 202518W
+  init_time: '2025091700'
+  mode: continuous
+  total_steps: 8
+  tag: sweep_2K_24h
+  perturbation:
+    type: heating
+    injection: per_step
+    amp_K: 2.0
+    heat_type: Deep
+    forcing_steps: 8
+    amp_mode: spread
+    sigma: 5.0
+provenance:
+  stamped_at_utc: '2026-07-12T08:26:46.391041Z'
+  llat_manifold_git: a2ea310
