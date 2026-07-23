@@ -45,7 +45,7 @@ geopotential→height (÷ `G=9.80665`) — reuse it instead of re-deriving.
 | Perturbation IKE | [ike.py](ike.py) · `plot_ike_perturbation` | `ΔIKE` total/inner/outer vs iter | `ike_perturbation.png` |
 | 2D fields | [fields.py](fields.py) · `plot_fields` | Part-1 5-row field grid | `fields.png` |
 | Wave Hovmöller | [waves.py](waves.py) · `hovmoller` | radius–time of δ field + L_R | `hovmoller_msl.png` |
-| Response (scaffold) | [response.py](response.py) · `central_pressure_drop` | scalar Δp_min extractor | — (sweep assembles) |
+| Forcing–response | [response.py](response.py) · `pv_response_series`, `plot_amplitude_sweep`, `plot_sweep_maps`, `plot_sweep_comparison` | ΔPV dipole vs amplitude/iteration vs state-based theory; moist-vs-qlock & heating-vs-δq probes | `figures/pv_*.png` (category level) |
 | Modal (reserved) | [modal.py](modal.py) · `eof` | EOF/SVD of δ ensemble | — (NotImplemented) |
 
 ### Non-hydrostatic ε — [hydrostatic.py](hydrostatic.py)
@@ -153,8 +153,12 @@ continuous/forward only.
 
 $$\Delta p_{\min} = \min\big(\delta\,\mathrm{MSL}\big)$$
 
-`response.central_pressure_drop` extracts this scalar intensification proxy per run; the
-amplitude **sweep** assembles response-vs-forcing curves. `modal.eof` is **reserved**
+`response.central_pressure_drop` extracts this scalar intensification proxy per run.
+`response.py` is now the full forcing–response module: ΔPV dipole scalars per run
+(`analyze_pair`), amplitude sweeps vs a linear reference, ΔPV-vs-iteration against the
+state-based semi-linear theory, 6×3 structure panels, and the moist/q-locked/δq-only
+comparison CLIs (`sweep`/`timeseries`/`maps`/`compare-sweep`/`compare-tseries`) —
+search recurses one family level under the category dir. `modal.eof` is **reserved**
 (raises `NotImplementedError`) — EOF/SVD of the δ power-iteration sequence toward its leading
 finite-time mode.
 
@@ -183,7 +187,7 @@ Each module is a CLI (`python -m llat_manifold.diagnostics.<mod> …`). Per-**bu
 plotters take a bundle path; per-**run** plotters (`ike`, `evolution`) take the run dir:
 
 ```bash
-RUN=outputs/diabatic_heating/snapshot_10K_iter20_init2025092000
+RUN=outputs/diabatic_heating/snapshot/snapshot_10K_iter20_init2025092000
 B=$RUN/data
 # per-bundle (δ → add background for the absolute/nonlinear field):
 python -m llat_manifold.diagnostics.hydrostatic $B/delta_…_iter020.npz --baseline $B/background.npz \

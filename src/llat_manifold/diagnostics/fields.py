@@ -34,12 +34,15 @@ def bundle_to_xarray(upper, sfc):
 def plot_fields(delta_path, out_png=None, label="LLAT"):
     """Render the 5-row field grid for one bundle (one column)."""
     delta_path = Path(delta_path)
+    if out_png is None:
+        # Default into the run's plots/ — never hand None down to the Part-1
+        # saver (that once produced a stray "None.png" at the CWD).
+        out_png = delta_path.parent.parent / "plots" / "fields.png"
     up, sfc = io.load_delta_bundle(delta_path)
     ds = bundle_to_xarray(up, sfc)
     title = experiment_title(delta_path.parent.parent, prefix="fields:")
     out = rc_fields.plot_fields_comparison({label: ds}, out_png, title=title)
-    if out_png is not None:
-        print(f"[fields] wrote {out_png}")
+    print(f"[fields] wrote {out_png}")
     return out
 
 

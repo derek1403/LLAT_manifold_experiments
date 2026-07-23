@@ -1,0 +1,6 @@
+# δ-sweep (wavenumber selection): thinner/thicker ring at fixed rmw.
+extends: base.yaml
+tag: ring_d0p85
+family: ring_delta_sweep
+perturbation:
+  delta: 0.85

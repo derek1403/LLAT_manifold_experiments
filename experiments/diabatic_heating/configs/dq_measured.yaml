@@ -1,0 +1,12 @@
+# Measured δq scaling for MoisturePerturbation (scaling: measured).
+# Source: moist heating runs sweep_5K_24h_init<init>, δq at nominal hour 24,
+# signed extremum per level within the heated core (r ≤ 2σ), normalized so the
+# peak-|value| level = 1. gkg_per_K = peak |δq| [g/kg] / 5 K. Regenerate with
+# the snippet in experiments/diabatic_heating/README.md if the moist runs change.
+# pressure_levels_hPa: [50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+"2025091700":
+  gkg_per_K: 0.2374
+  profile: [0.0000, 0.0004, 0.0016, -0.0138, 0.0639, 0.1357, 0.5941, 0.4055, 0.9566, 1.0000, 0.5225, 0.3954, -0.1277]
+"2025092000":
+  gkg_per_K: 0.1883
+  profile: [-0.0000, -0.0005, 0.0051, 0.0251, 0.1150, 0.1642, 0.4546, 0.3872, 0.5972, 1.0000, 0.5373, 0.4321, 0.2416]

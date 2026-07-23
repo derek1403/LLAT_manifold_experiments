@@ -41,6 +41,9 @@ def experiment_title(out_dir, prefix: str = "") -> str:
     # Keep the title short: only the most informative perturbation params.
     keys = ("type", "amp_K", "heat_type", "delta_K", "vortex_name")
     parts = [f"{k}={pert[k]}" for k in keys if k in pert]
+    init = cfg.get("init_time")
+    if init:
+        parts.insert(0, f"init={init}")
     ptxt = ", ".join(parts)
     line1 = f"{prefix} {cat}/{tag}".strip()
     line2 = f"[{mode}]" + (f"  {ptxt}" if ptxt else "")

@@ -1,6 +1,7 @@
 # Same snapshot experiment but initialised from 2025092000 (a stronger RAGASA stage)
 # to check the perturbation response on a more intense vortex.
 extends: base.yaml
+family: snapshot
 tag: snapshot_5K_iter20
 init_time: "2025092000"
 mode: snapshot

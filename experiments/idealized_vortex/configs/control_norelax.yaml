@@ -1,0 +1,6 @@
+# control: free-running frame — is the boundary a spurious signal source?
+extends: base.yaml
+tag: ring_norelax
+family: ring_controls
+boundary_relax:
+  width: 0

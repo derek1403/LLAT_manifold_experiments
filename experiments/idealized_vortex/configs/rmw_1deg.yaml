@@ -1,0 +1,6 @@
+# scale sweep (core question): same ring shape, enlarged radius (keep-V).
+extends: base.yaml
+tag: ring_rmw1deg
+family: ring_scale_sweep
+perturbation:
+  rmw_deg: 1.0

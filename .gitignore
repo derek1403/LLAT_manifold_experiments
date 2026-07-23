@@ -18,6 +18,7 @@
 # alongside growth_curves.png. This keeps the repo light (frames+GIFs are ~220 MB).
 *.gif
 **/plots/evolution/*/*.png
+**.png
 
 # --- Logs ---
 *.log
@@ -36,3 +37,18 @@ __pycache__/
 # NOTE: outputs/ is intentionally NOT ignored wholesale. Each run keeps its
 # README.md, config_used.yaml and plots/*.png; only the heavy bundles above are
 # excluded. Do not add `outputs/` or `*.png` here.
+
+# =============================================================================
+# Outputs & Experiment Artifacts
+# =============================================================================
+# 忽略大量自動生成的參數掃描與個別實驗資料夾 (包含裡面的 README, yaml, png)
+outputs/**/sweep*/
+outputs/**/tseries*/
+outputs/**/snapshot*/
+outputs/**/ring_*/
+
+# (可選) 忽略個別實驗目錄下單獨的 plot 資料夾
+outputs/**/plots/
+
+# 但強制保留 (不忽略) 跨實驗的總結性圖表
+##!outputs/**/figures/*.png

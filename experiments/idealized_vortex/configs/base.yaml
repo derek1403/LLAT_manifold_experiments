@@ -1,8 +1,22 @@
+# Ring-vortex barotropic-instability base config (snapshot semi-linear).
+# Run with scripts/run_vortex_experiment.py (NOT run_experiment.py — this
+# category uses the isolated driver in llat_manifold.idealized_vortex).
 category: idealized_vortex
-tc_id: "202518W"
+family: ring_snapshot
+tag: ring_g0p2_d0p7_rmw2p5
+tc_id: "202518W"          # geometry/init provenance of the quiescent background
 init_time: "2025091700"
-mode: forward
-fore_hour: 120
+mode: snapshot
+iterations: 40            # x 3 h = 5 equivalent days (merge is done by ~day 3)
+background_npz: outputs/idealized_vortex/backgrounds/quiescent_202518W_2025091700.npz
+boundary_relax:
+  width: 8                # outer frame pinned back to the background each iter
+  alpha: 1.0
 perturbation:
-  type: vortex
-  vortex_name: idealize_vortex   # scaffold; apply_ic not yet implemented
+  type: ring_vortex
+  gamma: 0.2              # hollowness  zeta_eye / zeta_ring
+  delta: 0.7              # thickness   r1 / r2
+  rmw_deg: 2.5            # outer ring radius r2 (deg); core diameter ~20 grid pts
+  vmax: 35.0              # m/s (keep-V scaling; zeta_ring follows)
+  noise_amp: 0.05         # m/s white-noise asymmetry seed
+  seed: 0

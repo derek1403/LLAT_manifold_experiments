@@ -1,0 +1,7 @@
+# bigger AND thicker single ring: annulus 2.5-5 deg = 10 grid cells wide
+extends: base.yaml
+tag: ring_rmw5_thick
+family: ring_scale_sweep
+perturbation:
+  rmw_deg: 5.0
+  delta: 0.5

@@ -3,6 +3,7 @@
 # (Deep profile, +10 K peak, sigma = 5 grid points).
 extends: base.yaml
 tag: ic_bump_Deep_10K
+family: forward
 mode: forward
 fore_hour: 6
 perturbation:

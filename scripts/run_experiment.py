@@ -58,7 +58,8 @@ def main(argv=None) -> int:
     tag = cfg.get("tag", args.config.stem)
     run_name = io.make_run_name(cfg, tag)
 
-    out_dir = io.experiment_output_dir(category, run_name, create=True)
+    out_dir = io.experiment_output_dir(category, run_name, create=True,
+                                       family=cfg.get("family"))
     io.stamp_config(out_dir, cfg)
     print(f"[run] category={category} run={run_name} mode={cfg['mode']} -> {out_dir}")
 

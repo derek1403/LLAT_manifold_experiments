@@ -170,6 +170,36 @@ def test_upper_lock_q():
     print("ok test_upper_lock_q")
 
 
+def test_moisture_injection():
+    """δq-only forcing hits the q channel at the scaled amplitude; T stays at zero."""
+    from llat_manifold.perturbations.moisture import MoisturePerturbation, LATENT_GKG_PER_K
+
+    state = _fake_state()
+    prof = [0.0] * 13
+    prof[9] = 1.0                                   # measured-style: peak at 700 hPa
+    pert = MoisturePerturbation(injection="per_step", amp_K=4.0, gkg_per_K=0.5,
+                                profile=prof, forcing_steps=2, amp_mode="spread",
+                                sigma=5.0)
+    assert pert.param_tag == "4K_dqM_2steps"
+    active = layout.active_lock_indices(pert.claimed_static_vars())
+    q, t = layout.upper_index("q"), layout.upper_index("t")
+    with tempfile.TemporaryDirectory() as d:
+        saved = driver._run_continuous({"total_steps": 1}, _IdentityDLAMPty(),
+                                       Path(d), state, pert, active)
+        d_up, _ = io.load_delta_bundle(saved[0])
+        # per-step amp = 4/2 = 2 equivalent K × 0.5 g/kg/K = 1 g/kg = 1e-3 kg/kg peak
+        # (bundles are float32, so compare at 1e-8).
+        centre = d_up[:, NY // 2, NX // 2, q]
+        assert abs(centre[9] - 1.0e-3) < 1e-8 and abs(centre.max() - 1.0e-3) < 1e-8
+        assert np.all(d_up[..., t] == 0.0), "δq-only forcing must not touch T"
+    # Latent-equivalent default: cp/Lv ≈ 0.4016 g/kg per K, Deep profile, tag dqL.
+    lat = MoisturePerturbation(injection="per_step", amp_K=5.0, forcing_steps=8,
+                               amp_mode="spread", sigma=5.0)
+    assert lat.param_tag == "5K_dqL_8steps"
+    assert abs(LATENT_GKG_PER_K - 0.4016) < 1e-4
+    print("ok test_moisture_injection")
+
+
 if __name__ == "__main__":
     test_layout_indices()
     test_active_lock_default_and_masked()
@@ -178,4 +208,5 @@ if __name__ == "__main__":
     test_sst_dynamic_mask()
     test_snapshot_math()
     test_upper_lock_q()
+    test_moisture_injection()
     print("\nALL OFFLINE TESTS PASSED")

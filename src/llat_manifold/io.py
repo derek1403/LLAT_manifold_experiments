@@ -19,13 +19,20 @@ from regional_couple.io.arrays import save_array, load_array, array_exists  # no
 from . import config
 
 
-def experiment_output_dir(category: str, run_name: str, create: bool = True) -> Path:
-    """Resolve ``<output_root>/<category>/<run_name>`` (the run root).
+def experiment_output_dir(category: str, run_name: str, create: bool = True,
+                          family: str | None = None) -> Path:
+    """Resolve ``<output_root>/<category>[/<family>]/<run_name>`` (the run root).
 
-    When ``create`` is set, also makes the mandated ``data/`` and ``plots/``
-    subfolders so figures and arrays never mix at the run root.
+    ``family`` groups related runs one level below the category (e.g. the
+    diabatic_heating families ``heating_moist`` / ``heating_qlock`` /
+    ``dq_measured`` / ``dq_latent`` / ``snapshot``); configs set it with a
+    ``family:`` key. When ``create`` is set, also makes the mandated ``data/``
+    and ``plots/`` subfolders so figures and arrays never mix at the run root.
     """
-    d = config.output_root() / category / run_name
+    d = config.output_root() / category
+    if family:
+        d = d / family
+    d = d / run_name
     if create:
         (d / "data").mkdir(parents=True, exist_ok=True)
         (d / "plots").mkdir(parents=True, exist_ok=True)

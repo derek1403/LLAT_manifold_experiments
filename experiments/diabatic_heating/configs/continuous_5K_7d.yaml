@@ -4,6 +4,7 @@
 # (40 steps = 5 days; here forced throughout).
 extends: base.yaml
 tag: continuous_5K
+family: heating_moist
 mode: continuous
 total_steps: 40
 perturbation:

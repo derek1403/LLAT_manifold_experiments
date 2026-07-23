@@ -1,0 +1,11 @@
+# alternating-amplitude double ring (strong-weak-strong-weak along radius)
+extends: base.yaml
+tag: ring_bands_double
+family: ring_multiband
+perturbation:
+  rmw_deg: 4.8              # = outermost r_out (r_cut + diagnostics band)
+  zeta_bands:
+    - [0.0, 1.5, 0.15]      # eye
+    - [1.5, 2.8, 1.0]       # inner ring (strong)
+    - [2.8, 3.6, 0.15]      # moat (weak)
+    - [3.6, 4.8, 0.7]       # outer ring (strong)

@@ -4,6 +4,7 @@
 # fastest-growing finite-time structure at one valid time.
 extends: base.yaml
 tag: snapshot_5K_iter20
+family: snapshot
 mode: snapshot
 iterations: 20
 perturbation:

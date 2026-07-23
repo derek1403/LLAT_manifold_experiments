@@ -1,0 +1,10 @@
+# sign-reversing ring: positive annulus + negative skirt (explicit Rayleigh reversal)
+extends: base.yaml
+tag: ring_bands_negative
+family: ring_multiband
+perturbation:
+  rmw_deg: 4.2
+  zeta_bands:
+    - [0.0, 1.2, 0.1]
+    - [1.2, 2.8, 1.0]
+    - [2.8, 4.2, -0.35]

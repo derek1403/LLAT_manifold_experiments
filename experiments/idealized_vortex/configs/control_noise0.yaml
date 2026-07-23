@@ -1,0 +1,6 @@
+# control: no noise seed — growth must come from instability of the ring itself
+extends: base.yaml
+tag: ring_noise0
+family: ring_controls
+perturbation:
+  noise_amp: 0.0

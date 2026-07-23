@@ -1,6 +1,7 @@
 # Same snapshot experiment from 2025092000 but 10 K heating, to compare iter001
 # against the original onestep image PV_Theta_tengential_10_Deep_3_v3_True.png.
 extends: base.yaml
+family: snapshot
 tag: snapshot_10K_iter20
 init_time: "2025092000"
 mode: snapshot

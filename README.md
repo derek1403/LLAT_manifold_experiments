@@ -42,17 +42,28 @@ pip install -e .                              # this repo
 ## Run an experiment
 
 ```bash
+# one config:
 python scripts/run_experiment.py --config experiments/diabatic_heating/configs/continuous_5K_7d.yaml
-# outputs/<category>/<tag>/  ->  delta_*.npz  +  config_used.yaml
+# batch sweeps (amplitude ranges, q-lock, δq-only, channel locks — one command per family):
+python scripts/run_amp_sweep.py --amps-range 0.5 10 0.5 --steps 8
+# outputs/<category>/<family>/<tag>_init<init>/  ->  data/*.npz + plots/ + config_used.yaml
 ```
 
-Add `--dry-run` to resolve + stamp the config without launching the models.
+Runs are grouped by **experiment family** one level below the category (`family:` in
+the config; `run_amp_sweep.py` derives it from `--pert/--lock/--dq-scaling`). See
+[`outputs/diabatic_heating/README.md`](outputs/diabatic_heating/README.md) for the
+family index + naming conventions. Add `--dry-run` to resolve + stamp the config
+without launching the models.
 
 ## Diagnose
 
 ```bash
-python -m llat_manifold.diagnostics.waves outputs/diabatic_heating/continuous_5K_7d --var msl --out hov.png
-python -m llat_manifold.diagnostics.pv    outputs/diabatic_heating/continuous_5K_7d/<bundle>.npz --out theta.png
+RUN=outputs/diabatic_heating/heating_moist/tseries_5K_120h_init2025092000
+python -m llat_manifold.diagnostics.waves $RUN/data --var msl --out hov.png
+python -m llat_manifold.diagnostics.pv    $RUN/data/<bundle>.npz --out theta.png
+# cross-run forcing–response figures (searches every family folder):
+python -m llat_manifold.diagnostics.response sweep outputs/diabatic_heating --lead 24 \
+       --out outputs/diabatic_heating/figures/pv_amplitude_sweep_lead024h.png
 ```
 
 ## Experiment catalogue
@@ -77,7 +88,10 @@ src/llat_manifold/
   diagnostics/   pv, divergence, wind_profile, hydrostatic, ike, waves, fields,
                  response, modal(reserved) — see diagnostics/README.md for how each is computed
 experiments/   per-category README + configs (Base + Overrides via `extends:`)
-scripts/run_experiment.py
+outputs/<category>/<family>/<run>/   data/ + plots/ + config_used.yaml + README
+outputs/<category>/figures/          cross-run comparison figures
+scripts/run_experiment.py            one config -> one run
+scripts/run_amp_sweep.py             batch sweeps: --pert/--lock/--dq-scaling -> one family
 docs/perturbation_method.md   tests/test_offline.py
 ```
 
