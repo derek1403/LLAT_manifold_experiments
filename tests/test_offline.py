@@ -200,6 +200,58 @@ def test_moisture_injection():
     print("ok test_moisture_injection")
 
 
+def test_reduce_stats_consistency():
+    """max/p95/p90 share a population; only the reduction differs.
+
+    p95/p90 are TAIL MEANS — the average over the top 5 %/10 % of the box, not
+    the percentile value. Guards the properties the swap relies on: the tail is
+    the right size, the reported value is the tail's mean (so ~63 cells vote, not
+    one), the statistics are ordered p90 ≤ p95 ≤ max, and a single-cell selection
+    still reports that cell exactly (which is what keeps stat="max" bit-exact
+    with the pre-percentile implementation).
+    """
+    from llat_manifold.diagnostics import response as R
+
+    rng = np.random.default_rng(20260723)
+    dpv = rng.normal(size=(13, 81, 81))
+    p_hpa = np.asarray(layout.pressure_levels(), dtype=float)
+    core = R._core_mask(81, 81, 5.0)
+    lev = (p_hpa >= 700) & (p_hpa <= 1000)
+    box = core[None, :, :] & lev[:, None, None]
+    n_box = int(box.sum())
+
+    v_max, kji, sel = R._reduce(dpv, lev, core, "max", "max")
+    assert sel.sum() == 1 and dpv[kji] == v_max
+    assert v_max == np.nanmax(np.where(box, dpv, np.nan))
+    # the extremum is the 100th percentile of the same population
+    assert abs(v_max - np.nanpercentile(np.where(box, dpv, np.nan), 100)) < 1e-12
+
+    seen = {}
+    for stat, pct in (("p95", 95), ("p90", 90)):
+        v, _kji, sel = R._reduce(dpv, lev, core, "max", stat)
+        frac = sel.sum() / n_box
+        assert abs(frac - (100 - pct) / 100) < 0.01, (stat, frac)
+        # THE contract: the value is the mean of the tail, not the cut that made it
+        assert abs(v - dpv[sel].mean()) < 1e-12, f"{stat} must report the tail mean"
+        cut = np.nanpercentile(np.where(box, dpv, np.nan), pct)
+        assert v > cut, "a tail mean must exceed the percentile that defines it"
+        assert v < v_max, "...and still sit below the extremum"
+        assert sel.sum() > 50, "the whole point is that many cells vote, not one"
+        # min pole takes the mirror tail
+        v_min, _k, sel_min = R._reduce(dpv, lev, core, "min", stat)
+        assert v_min < 0 < v and abs(sel_min.sum() - sel.sum()) <= 1
+        seen[stat] = v
+    assert seen["p90"] < seen["p95"] < v_max, "ordering p90 <= p95 <= max"
+
+    # a single-cell selection reports that cell exactly, not a weighted average
+    r2d = R._radius_field(np.tile(np.linspace(30, 10, 81)[:, None], (1, 81)),
+                          np.tile(np.linspace(120, 140, 81)[None, :], (81, 1)))
+    _v, kji, sel = R._reduce(dpv, lev, core, "max", "max")
+    p_c, r_c = R._locate(sel, dpv, p_hpa, r2d)
+    assert p_c == p_hpa[kji[0]] and r_c == r2d[kji[1], kji[2]]
+    print("ok test_reduce_stats_consistency")
+
+
 if __name__ == "__main__":
     test_layout_indices()
     test_active_lock_default_and_masked()
@@ -209,4 +261,5 @@ if __name__ == "__main__":
     test_snapshot_math()
     test_upper_lock_q()
     test_moisture_injection()
+    test_reduce_stats_consistency()
     print("\nALL OFFLINE TESTS PASSED")

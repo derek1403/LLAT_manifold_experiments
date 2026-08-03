@@ -38,7 +38,8 @@ _RUNS = [
 ]
 
 
-def plot(style: str = "note"):
+def plot(style: str = "note", *, ic: str = D.DEFAULT_IC,
+         stat: str = D.DEFAULT_STAT):
     S.apply()
     inits = [D.STRONG, D.WEAK]
     fig, axes = plt.subplots(2, 3, figsize=(16.5, 9), sharex=True, sharey=True)
@@ -48,7 +49,7 @@ def plot(style: str = "note"):
     series = {}
     for r, init in enumerate(inits):
         for c, (fam, tag, _lab) in enumerate(_RUNS):
-            s = D.energy_series(str(D.run(fam, tag.format(init=init))))
+            s = D.energy_series(str(D.run(fam, tag.format(init=init), ic=ic)))
             es, el = np.asarray(s["e_sens"]), np.asarray(s["e_lat"])
             tot = es + el
             series[(r, c)] = (s, tot)
@@ -61,7 +62,7 @@ def plot(style: str = "note"):
         for c, (fam, tag, lab) in enumerate(_RUNS):
             ax = axes[r, c]
             s, tot = series[(r, c)]
-            t_end = int(D.forcing_end_hours(str(D.run(fam, tag.format(init=init)))))
+            t_end = int(D.forcing_end_hours(str(D.run(fam, tag.format(init=init), ic=ic))))
             S.zero_line(ax)
             S.forcing_span(ax, t_end, label=(r == 0 and c == 0))
 
@@ -85,7 +86,7 @@ def plot(style: str = "note"):
             ax.set_title(f"{lab}\n{D.CASE[init]}", fontsize=S.FS_TICK + 0.5, weight="bold")
 
     for ax in axes[-1, :]:
-        ax.set_xlabel("Iteration n  (nominal hour)")
+        ax.set_xlabel("Iteration n  (hour)")
     for ax in axes[:, 0]:
         ax.set_ylabel("core-mean column energy\n[MJ m$^{-2}$]")
     axes[0, 0].legend(loc="upper right", fontsize=S.FS_LEGEND - 0.5)
@@ -99,7 +100,10 @@ def plot(style: str = "note"):
 
 
 if __name__ == "__main__":
-    ap = S.add_style_args(argparse.ArgumentParser(description=__doc__))
-    ap.add_argument("--out", default=str(D.FIGS / "h4_energy_partition.png"))
+    ap = D.add_data_args(
+        S.add_style_args(argparse.ArgumentParser(description=__doc__)))
+    ap.add_argument("--out", default=None,
+                    help="default: figs/<ic>/<stat>/h4_energy_partition.png")
     a = ap.parse_args()
-    S.save(plot(a.style), a.out, style=a.style, pdf=not a.no_pdf)
+    out = a.out or D.figs_dir(a.ic, a.stat) / "h4_energy_partition.png"
+    S.save(plot(a.style, ic=a.ic, stat=a.stat), out, style=a.style, pdf=not a.no_pdf)

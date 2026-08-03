@@ -52,9 +52,10 @@ def _hov(run_dir, dr_km=25.0, r_max_km=900.0):
     return np.asarray(hours), r_km, np.asarray(rows), core_km
 
 
-def plot(init: str = D.STRONG, style: str = "note"):
+def plot(init: str = D.STRONG, style: str = "note", *, ic: str = D.DEFAULT_IC,
+         stat: str = D.DEFAULT_STAT):
     S.apply()
-    panels = [(_hov(str(D.run(fam, tag.format(init=init)))), lab) for fam, tag, lab in _RUNS]
+    panels = [(_hov(str(D.run(fam, tag.format(init=init), ic=ic))), lab) for fam, tag, lab in _RUNS]
     vmax = max(np.nanpercentile(np.abs(hov), 98) for (_, _, hov, _), _ in panels)
 
     fig, axes = plt.subplots(1, 3, figsize=(15.5, 6.6), sharey=True)
@@ -67,7 +68,7 @@ def plot(init: str = D.STRONG, style: str = "note"):
         ax.axvline(core_km, color="k", lw=1.2, ls="--")
         ax.set_title(lab)
         ax.set_xlabel("radius [km]")
-    axes[0].set_ylabel("Iteration n  (nominal hour)")
+    axes[0].set_ylabel("Iteration n  (hour)")
     # Two annotations, on panel (a) only, inside the field with a white halo.
     axes[0].text(core_km + 15, hours[-1] * 0.97, "2σ core", ha="left", va="top",
                  fontsize=S.FS_ANNOT, style="italic", rotation=90,
@@ -87,8 +88,11 @@ def plot(init: str = D.STRONG, style: str = "note"):
 
 
 if __name__ == "__main__":
-    ap = S.add_style_args(argparse.ArgumentParser(description=__doc__))
+    ap = D.add_data_args(
+        S.add_style_args(argparse.ArgumentParser(description=__doc__)))
     ap.add_argument("--init", default=D.STRONG)
-    ap.add_argument("--out", default=str(D.FIGS / "h4_moisture_hovmoller.png"))
+    ap.add_argument("--out", default=None,
+                    help="default: figs/<ic>/<stat>/h4_moisture_hovmoller.png")
     a = ap.parse_args()
-    S.save(plot(a.init, a.style), a.out, style=a.style, pdf=not a.no_pdf)
+    out = a.out or D.figs_dir(a.ic, a.stat) / "h4_moisture_hovmoller.png"
+    S.save(plot(a.init, a.style, ic=a.ic, stat=a.stat), out, style=a.style, pdf=not a.no_pdf)

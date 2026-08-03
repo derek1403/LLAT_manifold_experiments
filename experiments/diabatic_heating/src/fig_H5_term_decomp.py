@@ -1,6 +1,6 @@
 """H5 positive evidence — which term of PV carries the response? (no locks, pure diagnosis)
 
-The T-lock survival figure is negative evidence ("δT not needed"). This is the
+The δT = 0 survival figure is negative evidence ("δT not needed"). This is the
 positive twin: decompose the *free* runs' ΔPV at the extremum into
 
     ΔPV ≈ Δζ·∂θ/∂p  (vorticity term)  +  (ζ+f)·Δ(∂θ/∂p)  (stability term)
@@ -8,14 +8,14 @@ positive twin: decompose the *free* runs' ΔPV at the extremum into
 by counterfactual evaluation — recompute PV with only the wind fields perturbed
 (vorticity term) or only the temperature field perturbed (stability term), control
 everything else, and read both at the free run's own extremum. Shown as the
-percentage of the full ΔPV each term carries (5 K, nominal hour 24).
+percentage of the full ΔPV each term carries (5 K, hour 24).
 
 The punchline pair: the δq-only low-level response is carried ~100 % by the
 vorticity term with zero stability contribution, while the *same model's* heating
 runs split ~60/40 (the classical dry route) — same pole, same model, different
 forcing, different term. Cross-checked against the lock experiments: the more a
-pole leans on the vorticity term, the better it survives T-locking and the harder
-it dies under wind-locking.
+pole leans on the vorticity term, the better it survives δT = 0 and the harder
+it dies under δu = δv = 0.
 """
 from __future__ import annotations
 
@@ -72,11 +72,12 @@ def _decompose(run_dir, pole, lead_hr=24):
     return 100 * vort / full, 100 * stab / full, full
 
 
-def plot(lead_hr: int = 24, style: str = "note"):
+def plot(lead_hr: int = 24, style: str = "note", *, ic: str = D.DEFAULT_IC,
+         stat: str = D.DEFAULT_STAT):
     S.apply()
     rows = []
     for fam, tag, init, pole, lab in _CASES:
-        v, s, full = _decompose(str(D.run(fam, tag.format(i=init))), pole, lead_hr)
+        v, s, full = _decompose(str(D.run(fam, tag.format(i=init), ic=ic)), pole, lead_hr)
         rows.append((f"{lab}\n(100 % = {full:+.2f} PVU)", v, s))
         print(f"[decomp] {lab:34s} vort {v:6.0f} %   stab {s:6.0f} %   full {full:+.3f} PVU")
 
@@ -100,7 +101,7 @@ def plot(lead_hr: int = 24, style: str = "note"):
     ax.set_xlabel("share of the full ΔPV at the extremum  [%]")
     ax.set_xlim(-15, 125)
     ax.set_title(f"H5 positive evidence — ΔPV term decomposition of the free runs  "
-                 f"(5 K, nominal hour {lead_hr})")
+                 f"(5 K, hour {lead_hr})")
     ax.legend(loc="lower right")
     ax.text(100, 0.99, " 100 % = carries the whole response ",
             transform=ax.get_xaxis_transform(), ha="center", va="top",
@@ -114,8 +115,11 @@ def plot(lead_hr: int = 24, style: str = "note"):
 
 
 if __name__ == "__main__":
-    ap = S.add_style_args(argparse.ArgumentParser(description=__doc__))
+    ap = D.add_data_args(
+        S.add_style_args(argparse.ArgumentParser(description=__doc__)))
     ap.add_argument("--lead", type=int, default=24)
-    ap.add_argument("--out", default=str(D.FIGS / "h5_term_decomposition.png"))
+    ap.add_argument("--out", default=None,
+                    help="default: figs/<ic>/<stat>/h5_term_decomposition.png")
     a = ap.parse_args()
-    S.save(plot(a.lead, a.style), a.out, style=a.style, pdf=not a.no_pdf)
+    out = a.out or D.figs_dir(a.ic, a.stat) / "h5_term_decomposition.png"
+    S.save(plot(a.lead, a.style, ic=a.ic, stat=a.stat), out, style=a.style, pdf=not a.no_pdf)

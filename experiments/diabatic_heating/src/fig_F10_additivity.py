@@ -1,10 +1,10 @@
 """Methodology legitimacy — can the response be split into a T-path and a q-path?
 
-Much of the argument decomposes the response into severed halves (q-locked = T
+Much of the argument decomposes the response into severed halves (δq = 0 = T
 path, δq-only = q path) and measures them separately. This checks that the split
 is legitimate. On the shared control trajectory, add the ΔPV fields point-by-point
 and give the sum the same dipole reduction as the moist field, then form the
-synergy factor S = moist ÷ (q-locked + δq-only): S = 1 means the decomposition is
+synergy factor S = moist ÷ ((δq = 0) + δq-only): S = 1 means the decomposition is
 complete, > 1 super-additive (T×q coupling builds response neither half owns), < 1
 sub-additive (the two halves double-count a shared resource).
 
@@ -25,10 +25,11 @@ import _data as D
 import style as S
 
 
-def plot(lead_hr: int = 24, band=(0.8, 1.25), style: str = "note"):
+def plot(lead_hr: int = 24, band=(0.8, 1.25), style: str = "note", *, ic: str = D.DEFAULT_IC,
+         stat: str = D.DEFAULT_STAT):
     S.apply()
     from llat_manifold.diagnostics.response import additivity_series
-    data = additivity_series(str(D.CATEGORY), lead_hr=lead_hr)
+    data = additivity_series(str(D.category(ic)), lead_hr=lead_hr)
     inits = sorted(data)
     color = S.case_colors(inits)
 
@@ -53,9 +54,9 @@ def plot(lead_hr: int = 24, band=(0.8, 1.25), style: str = "note"):
     ax.set_yticklabels(["0.25", "0.5", "0.75", "1", "1.5", "2"])
     ax.set_xlim(left=0)
     ax.set_xlabel("Nominal amplitude amp_K  [K]")
-    ax.set_ylabel("synergy factor  S = moist ÷ (q-locked + δq-only)")
+    ax.set_ylabel("synergy factor  S = moist ÷ ((δq = 0) + δq-only)")
     ax.set_title(f"Additivity — can the response be split into a T-path and a q-path?  "
-                 f"(nominal hour {lead_hr})")
+                 f"(hour {lead_hr})")
     ax.text(0.985, 1.0, " S = 1: decomposition complete ", transform=ax.get_yaxis_transform(),
             ha="right", va="bottom", fontsize=S.FS_ANNOT, style="italic", color="#333333")
     ax.grid(True, which="both", linestyle="--", alpha=0.35)
@@ -68,8 +69,11 @@ def plot(lead_hr: int = 24, band=(0.8, 1.25), style: str = "note"):
 
 
 if __name__ == "__main__":
-    ap = S.add_style_args(argparse.ArgumentParser(description=__doc__))
+    ap = D.add_data_args(
+        S.add_style_args(argparse.ArgumentParser(description=__doc__)))
     ap.add_argument("--lead", type=int, default=24)
-    ap.add_argument("--out", default=str(D.FIGS / "f10_additivity.png"))
+    ap.add_argument("--out", default=None,
+                    help="default: figs/<ic>/<stat>/f10_additivity.png")
     a = ap.parse_args()
-    S.save(plot(a.lead, style=a.style), a.out, style=a.style, pdf=not a.no_pdf)
+    out = a.out or D.figs_dir(a.ic, a.stat) / "f10_additivity.png"
+    S.save(plot(a.lead, style=a.style, ic=a.ic, stat=a.stat), out, style=a.style, pdf=not a.no_pdf)

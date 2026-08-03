@@ -19,6 +19,7 @@ long time-series runs so their first ``forcing_steps`` leads are directly compar
 from __future__ import annotations
 
 import argparse
+import pathlib
 import sys
 from pathlib import Path
 
@@ -32,11 +33,37 @@ from run_experiment import load_config  # noqa: E402
 from llat_manifold import driver, io, operators  # noqa: E402
 from llat_manifold.perturbations.heating import _amp_tag  # noqa: E402
 
-_BASE_CFG = _HERE.parent / "experiments" / "diabatic_heating" / "configs" / "base.yaml"
-_DQ_MEASURED = _HERE.parent / "experiments" / "diabatic_heating" / "configs" / "dq_measured.yaml"
+_CFG_DIR = _HERE.parent / "experiments" / "diabatic_heating" / "configs"
+_BASE_CFG = _CFG_DIR / "base.yaml"
+_DQ_MEASURED = _CFG_DIR / "dq_measured.yaml"
+
+# --ic axisym: same families, same tag prefixes, separate output category, and the
+# prebuilt azimuthally averaged IC per init. Keeping the names identical means every
+# downstream tag glob and figure script works on either set unchanged.
+_AXISYM_CATEGORY = "diabatic_heating_axisym"
+_AXISYM_DQ = _CFG_DIR / "dq_measured_axisym.yaml"
 
 
-def _dq_measured(init_time: str, layer: str = "full") -> dict:
+def _axisym_ic(tc_id: str, init_time: str, env_from: str | None = None) -> str:
+    from llat_manifold import config
+    stem = f"axisym_{tc_id}_{init_time}"
+    if env_from and env_from != init_time:
+        # Same-vortex, reference-environment member of an intensity ladder: the
+        # atmosphere is init_time's, the environment (SST/f/radiation/lat-lon/clock)
+        # is env_from's. The run folder still carries init_time (the vortex label);
+        # only the physics clock, read from the npz, is env_from's.
+        stem += f"_env{env_from}"
+    p = config.output_root() / "axisymmetric_ic" / f"{stem}.npz"
+    if not p.exists():
+        hint = (f"--tc-id {tc_id} --inits {init_time}"
+                + (f" --env-from {env_from}" if env_from else ""))
+        raise FileNotFoundError(
+            f"{p} not found — build it first with:\n"
+            f"  python scripts/make_axisymmetric_ic.py {hint}")
+    return str(p)
+
+
+def _dq_measured(init_time: str, layer: str = "full", table=None) -> dict:
     """Per-init measured δq scaling (gkg_per_K + 13-level profile) for --pert moisture.
 
     ``layer`` restricts the vertical profile for the layered-injection probe:
@@ -46,11 +73,12 @@ def _dq_measured(init_time: str, layer: str = "full") -> dict:
     budget are column quantities; the price is a different in-layer peak).
     """
     import yaml
-    with open(_DQ_MEASURED) as fh:
-        table = yaml.safe_load(fh)
-    if init_time not in table:
-        raise KeyError(f"{_DQ_MEASURED} has no entry for init {init_time!r}")
-    entry = dict(table[init_time])
+    path = pathlib.Path(table) if table else _DQ_MEASURED
+    with open(path) as fh:
+        tbl = yaml.safe_load(fh)
+    if init_time not in tbl:
+        raise KeyError(f"{path} has no entry for init {init_time!r}")
+    entry = dict(tbl[init_time])
     if layer == "full":
         return entry
     import numpy as np
@@ -70,9 +98,16 @@ def build_config(base_cfg: dict, *, init_time: str, amp_K: float, steps: int,
                  forcing_steps: int, heat_type: str, sigma: float,
                  tag_prefix: str, family: str, locks=(),
                  pert: str = "heating", dq_scaling: str = "measured",
-                 dq_layer: str = "full", dq_offset=(0, 0)) -> dict:
+                 dq_layer: str = "full", dq_offset=(0, 0),
+                 category: str | None = None, ic_npz: str | None = None,
+                 dq_table: str | None = None) -> dict:
     cfg = dict(base_cfg)
     cfg["init_time"] = init_time
+    if category:
+        cfg["category"] = category
+    if ic_npz:
+        # Prebuilt idealized IC; the driver loads it instead of the analysis.
+        cfg["ic_npz"] = ic_npz
     cfg["mode"] = "continuous"
     cfg["total_steps"] = steps
     cfg["tag"] = f"{tag_prefix}_{_amp_tag(amp_K)}_{steps * 3}h"
@@ -95,7 +130,8 @@ def build_config(base_cfg: dict, *, init_time: str, amp_K: float, steps: int,
     elif dq_scaling == "measured":
         # δq-only reverse probe: inject the δq the moist amp_K heating run grew
         # (optionally restricted to one layer, equal column amount).
-        cfg["perturbation"].update(_dq_measured(init_time, layer=dq_layer))
+        cfg["perturbation"].update(
+            _dq_measured(init_time, layer=dq_layer, table=dq_table))
     if pert == "moisture" and tuple(dq_offset) != (0, 0):
         cfg["perturbation"]["offset_pts"] = list(dq_offset)
     else:                                     # latent-equivalent: cp/Lv per K
@@ -161,6 +197,32 @@ def main(argv=None) -> int:
                     help="output family folder under outputs/<category>/ "
                          "(default: derived for the four standard combos; required "
                          "for any new pert/lock combination)")
+    ap.add_argument("--ic", choices=["ragasa", "axisym"], default="ragasa",
+                    help="initial condition: ragasa = the real analysis (default, "
+                         "category diabatic_heating); axisym = the azimuthally "
+                         "averaged idealized vortex from "
+                         "scripts/make_axisymmetric_ic.py (category "
+                         "diabatic_heating_axisym, same families and tag prefixes)")
+    ap.add_argument("--env-from", default=None,
+                    help="with --ic axisym: build an intensity-ladder member whose "
+                         "vortex is --inits but whose environment (SST / f / radiation "
+                         "/ lat-lon / clock) is this reference init's — i.e. load "
+                         "axisym_<tc>_<init>_env<envfrom>.npz. Holds the environment "
+                         "fixed as a controlled constant across the vortices. Build "
+                         "these with make_axisymmetric_ic.py --env-from first.")
+    ap.add_argument("--ic-npz", default=None,
+                    help="any prebuilt InitialState npz to start from, overriding "
+                         "--ic — e.g. one member of the intensity family written by "
+                         "scripts/make_vortex_intensity_ic.py. Requires --category so "
+                         "the runs land somewhere of their own; --inits then only "
+                         "supplies the time stamp the npz was derived from.")
+    ap.add_argument("--category", default=None,
+                    help="output category under outputs/ (default: from base.yaml, or "
+                         "diabatic_heating_axisym with --ic axisym). Required with "
+                         "--ic-npz.")
+    ap.add_argument("--dq-table", default=None,
+                    help="measured-\u03b4q YAML to read (default: dq_measured.yaml, or "
+                         "dq_measured_axisym.yaml with --ic axisym)")
     ap.add_argument("--dry-run", action="store_true",
                     help="stamp configs + READMEs only; no model runs")
     ap.add_argument("--force", action="store_true", help="rerun complete runs")
@@ -202,6 +264,24 @@ def main(argv=None) -> int:
     family = args.family or (std[1] if std else None)
 
     base_cfg = load_config(_BASE_CFG)
+    tc_id = str(base_cfg.get("tc_id", "202518W"))
+    if args.ic_npz and not args.category:
+        ap.error("--ic-npz needs --category: an arbitrary IC must not write into the "
+                 "diabatic_heating / diabatic_heating_axisym trees, whose runs are "
+                 "indexed by --ic elsewhere")
+    if args.ic_npz and not pathlib.Path(args.ic_npz).exists():
+        ap.error(f"--ic-npz {args.ic_npz} not found")
+    axisym = args.ic == "axisym" and not args.ic_npz
+    if args.env_from and not axisym:
+        ap.error("--env-from only applies to --ic axisym (it selects the "
+                 "reference-environment IC axisym_<tc>_<init>_env<envfrom>.npz)")
+    category = args.category or (_AXISYM_CATEGORY if axisym else None)
+    dq_table = args.dq_table or (str(_AXISYM_DQ) if axisym else None)
+    if axisym and args.pert == "moisture" and args.dq_scaling == "measured" \
+            and not pathlib.Path(dq_table).exists():
+        ap.error(f"{dq_table} not found — the axisymmetric \u03b4q scaling is measured "
+                 f"off the axisymmetric moist runs, so run those first, then:\n"
+                 f"  python scripts/measure_dq_scaling.py --ic axisym")
     jobs = []
     for init in args.inits:
         for amp in amp_list:
@@ -210,9 +290,16 @@ def main(argv=None) -> int:
                                heat_type=args.heat_type, sigma=args.sigma,
                                tag_prefix=tag_prefix, family=family, locks=locks,
                                pert=args.pert, dq_scaling=args.dq_scaling,
-                               dq_layer=args.dq_layer, dq_offset=tuple(args.dq_offset))
+                               dq_layer=args.dq_layer, dq_offset=tuple(args.dq_offset),
+                               category=category, dq_table=dq_table,
+                               ic_npz=args.ic_npz or (
+                                   _axisym_ic(tc_id, str(init), args.env_from)
+                                   if axisym else None))
             jobs.append(cfg)
 
+    print(f"[sweep] ic={args.ic_npz or args.ic}"
+          f"{' env=' + args.env_from if args.env_from else ''} "
+          f"category={category or base_cfg['category']}")
     print(f"[sweep] {len(jobs)} run(s): amps={amp_list} inits={list(args.inits)} "
           f"steps={args.steps} forcing_steps={args.forcing_steps} pert={args.pert} "
           f"lock={locks} layer={args.dq_layer} prefix={tag_prefix} family={family}")

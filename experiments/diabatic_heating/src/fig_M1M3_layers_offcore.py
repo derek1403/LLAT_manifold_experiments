@@ -41,7 +41,8 @@ def _profile(run_dir, sigma=5.0):
     return np.asarray(layout.pressure_levels(), dtype=float)[:dpv.shape[0]], prof
 
 
-def plot(init: str = D.STRONG, style: str = "note"):
+def plot(init: str = D.STRONG, style: str = "note", *, ic: str = D.DEFAULT_IC,
+         stat: str = D.DEFAULT_STAT):
     S.apply()
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(14.5, 6.6))
 
@@ -52,7 +53,7 @@ def plot(init: str = D.STRONG, style: str = "note"):
     axL.axhspan(850, 1000, color=S.C_LAT, alpha=0.10, lw=0)
     axL.axhspan(400, 700, color=S.C_STRONG, alpha=0.10, lw=0)
     for fam, tag, lab, c, ls in layers:
-        p, prof = _profile(D.run(fam, tag.format(init=init)))
+        p, prof = _profile(D.run(fam, tag.format(init=init), ic=ic))
         axL.plot(prof, p, color=c, ls=ls, lw=2.2, marker="o", ms=4, label=lab)
     axL.axvline(0, color=S.C_GUIDE, lw=0.8)
     axL.set_ylim(1000, 100)
@@ -66,8 +67,8 @@ def plot(init: str = D.STRONG, style: str = "note"):
     axL.legend(loc="lower right")
 
     # (b) state dependence: on-vortex vs off-vortex low-level max ΔPV.
-    on = D.sweep(D.FAMILY["dq_measured"][0], 24)
-    off = D.sweep(D.FAMILY["dq_offcore"][0], 24)
+    on = D.sweep(D.FAMILY["dq_measured"][0], 24, ic=ic, stat=stat)
+    off = D.sweep(D.FAMILY["dq_offcore"][0], 24, ic=ic, stat=stat)
     color = S.case_colors(set(on) & set(off))
     axR.axhline(0, color=S.C_GUIDE, lw=0.8)
     for init_k in sorted(set(on) & set(off)):
@@ -94,8 +95,11 @@ def plot(init: str = D.STRONG, style: str = "note"):
 
 
 if __name__ == "__main__":
-    ap = S.add_style_args(argparse.ArgumentParser(description=__doc__))
+    ap = D.add_data_args(
+        S.add_style_args(argparse.ArgumentParser(description=__doc__)))
     ap.add_argument("--init", default=D.STRONG)
-    ap.add_argument("--out", default=str(D.FIGS / "m1_m3_layers_offcore.png"))
+    ap.add_argument("--out", default=None,
+                    help="default: figs/<ic>/<stat>/m1_m3_layers_offcore.png")
     a = ap.parse_args()
-    S.save(plot(a.init, a.style), a.out, style=a.style, pdf=not a.no_pdf)
+    out = a.out or D.figs_dir(a.ic, a.stat) / "m1_m3_layers_offcore.png"
+    S.save(plot(a.init, a.style, ic=a.ic, stat=a.stat), out, style=a.style, pdf=not a.no_pdf)

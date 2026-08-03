@@ -29,8 +29,8 @@ import style as S
 # (family, tag template, x label) — the three δq-only variants.
 _RUNS = [
     ("dq_measured", "sweepdq_5K_24h_init{i}", "free"),
-    ("dq_tlock", "sweepdqtl_5K_24h_init{i}", "+ lock T"),
-    ("dq_uvlock", "sweepdquv_5K_24h_init{i}", "+ lock u,v"),
+    ("dq_tlock", "sweepdqtl_5K_24h_init{i}", "+ δT = 0"),
+    ("dq_uvlock", "sweepdquv_5K_24h_init{i}", "+ δu = δv = 0"),
 ]
 _PANELS = [(D.STRONG, "lowlevel"), (D.WEAK, "lowlevel"),
            (D.STRONG, "upperlevel"), (D.WEAK, "upperlevel")]
@@ -63,16 +63,17 @@ def _decompose_abs(run_dir, pole, lead_hr=24):
             float((_pv_of(up_stab, sfc) - pv_ctrl)[kji]))
 
 
-def plot(lead_hr: int = 24, style: str = "note"):
+def plot(lead_hr: int = 24, style: str = "note", *, ic: str = D.DEFAULT_IC,
+         stat: str = D.DEFAULT_STAT):
     S.apply()
     # sharey per row: the two inits of one pole sit on the same PVU scale,
     # so the strong/weak columns compare directly.
     fig, axes = plt.subplots(2, 2, figsize=(12.5, 8.6), sharey="row")
-    pole_name = dict(D.POLES)
+    pole_name = dict(D.poles(stat))
     for ax, (init, pole) in zip(axes.ravel(), _PANELS):
         fulls, vorts, stabs = [], [], []
         for fam, tag, _lab in _RUNS:
-            f, v, s = _decompose_abs(str(D.run(fam, tag.format(i=init))), pole, lead_hr)
+            f, v, s = _decompose_abs(str(D.run(fam, tag.format(i=init), ic=ic)), pole, lead_hr)
             fulls.append(f); vorts.append(v); stabs.append(s)
             print(f"[decomp-abs] {D.CASE[init]:14s} {pole:10s} {fam:12s} "
                   f"full {f:+.3f}  vort {v:+.3f}  stab {s:+.3f} PVU")
@@ -86,14 +87,14 @@ def plot(lead_hr: int = 24, style: str = "note"):
                       label="full ΔPV at the extremum" if xi == 0 else None)
         
         ax.set_xticks(x, [lab for _f, _t, lab in _RUNS])
-        ax.set_title(f"{D.CASE[init]} · {pole_name[f'{pole}_max' if pole == 'lowlevel' else f'{pole}_min']}",
+        ax.set_title(f"{D.CASE[init]} · {pole_name[pole]}",
                      fontsize=S.FS_LABEL)
         if ax.get_subplotspec().is_first_col():
             ax.set_ylabel("ΔPV  [PVU]")
     axes[0, 0].legend(loc="upper right")
     S.panel_letters(axes)
     fig.suptitle(f"H5 appendix — term decomposition of the LOCKED runs, absolute PVU  "
-                 f"(δq-only, 5 K, nominal hour {lead_hr})")
+                 f"(δq-only, 5 K, hour {lead_hr})")
     S.caption(fig, "in a locked run one term is zero BY CONSTRUCTION (δT≡0 → stability term; "
                    "δu=δv≡0 → vorticity term), so percentages are uninformative there; in PVU "
                    "the surviving term compares against the free run's same term — lock T keeps "
@@ -105,8 +106,11 @@ def plot(lead_hr: int = 24, style: str = "note"):
 
 
 if __name__ == "__main__":
-    ap = S.add_style_args(argparse.ArgumentParser(description=__doc__))
+    ap = D.add_data_args(
+        S.add_style_args(argparse.ArgumentParser(description=__doc__)))
     ap.add_argument("--lead", type=int, default=24)
-    ap.add_argument("--out", default=str(D.FIGS / "h5_term_decomp_locked.png"))
+    ap.add_argument("--out", default=None,
+                    help="default: figs/<ic>/<stat>/h5_term_decomp_locked.png")
     a = ap.parse_args()
-    S.save(plot(a.lead, a.style), a.out, style=a.style, pdf=not a.no_pdf)
+    out = a.out or D.figs_dir(a.ic, a.stat) / "h5_term_decomp_locked.png"
+    S.save(plot(a.lead, a.style, ic=a.ic, stat=a.stat), out, style=a.style, pdf=not a.no_pdf)

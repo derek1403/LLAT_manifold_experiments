@@ -51,6 +51,11 @@ mature-stage anvil), **Shallow** (low-level peak — shallow convection).
   much the storm's IKE changes under the perturbation — $\Delta\mathrm{IKE} = \mathrm{IKE}(\bar u + \delta) - \mathrm{IKE}(\bar u)$ split
   into total / inner ($r < 200$ km) / outer ($r \ge 200$ km), plotted vs iteration (one summary
   curve per run, same IKE definition as the operational dashboard).
+  The **cross-run** version (`src/fig_I1_ike_ladder.py`, one figure over the whole intensity
+  ladder × moist / q-locked / δq-only) is the one that carries the result:
+  > 結果與圖文整理(中文研究筆記):[`findings_IKE_response.md`](findings_IKE_response.md) ——
+  > 動能響應比 PV 響應**晚兩天**、是**強度開關式**的、且鎖 q 之後只剩 **3%**(ΔPV 還剩 38–59%);
+  > 純 δq 不加熱產生的動能是「加熱但鎖 q」的**十倍**。
 
 ## How it is implemented
 

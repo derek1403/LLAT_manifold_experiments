@@ -65,8 +65,10 @@ def plot_pv_theta_cross_section(delta_path, out_png=None, *, baseline_path=None,
     radius_2d, z_km, cy = _id.radius_height(z, lat2d, lon2d)
     theta = _id.theta_slice(t, p, cy)
     v_slice = v[:, cy, :]
-    z_min, z_max = float(np.nanmin(z_km)), 15.0
     mean_z_km = np.nanmean(z_km, axis=1)
+    # Ceiling at 200 hPa: above it the model's levels thin out and its own
+    # error dominates the injected response (_idealized.P_TOP_HPA).
+    z_min, z_max = float(np.nanmin(z_km)), _id.z_top_km(p, mean_z_km)
 
     # Layout: optional heating-profile panel on the left.
     fig = plt.figure(figsize=(13, 7) if heat_type else (12, 7))
@@ -134,8 +136,10 @@ def plot_wind_circulation_cross_section(delta_path, out_png=None, *, heat_type=N
     up, sfc, _ = _load(delta_path, None, False)
     u, v, t, z, w, f, lat2d, lon2d, p = _id.fields_from_bundle(up, sfc)
     radius_2d, z_km, cy = _id.radius_height(z, lat2d, lon2d)
-    z_min, z_max = float(np.nanmin(z_km)), 15.0
     mean_z_km = np.nanmean(z_km, axis=1)
+    # Ceiling at 200 hPa: above it the model's levels thin out and its own
+    # error dominates the injected response (_idealized.P_TOP_HPA).
+    z_min, z_max = float(np.nanmin(z_km)), _id.z_top_km(p, mean_z_km)
 
     u_slice = u[:, cy, :]
     w_slice = -w[:, cy, :] * 5.0     # scale ω for visibility (as in the original quiver)

@@ -208,6 +208,60 @@ def test_driver_vortex_bookkeeping():
     print("ok test_driver_vortex_bookkeeping")
 
 
+def test_axisymmetric_channel_policy():
+    """axisymmetrize() averages exactly the channels it is supposed to.
+
+    Three contracts, all load-bearing for the idealized-vortex runs:
+    (1) sfc[9:] — SST, Coriolis, terrain, land mask, time encodings, lat/lon —
+        comes through bit-identical, because those carry position on the Earth,
+        not radius from the storm;
+    (2) the averaged fields really do become functions of radius alone;
+    (3) a purely tangential vortex survives the average — the test that fails
+        loudly if u and v are ever averaged as scalars instead of as a vector,
+        which would cancel the vortex to nothing.
+    """
+    from llat_manifold.idealized_vortex import axisymmetric as ax
+
+    rng = np.random.default_rng(7)
+    lats = np.linspace(30, 10, NY)
+    lons = np.linspace(120, 140, NX)
+    lon2d, lat2d = np.meshgrid(lons, lats)
+    cy, cx = NY // 2, NX // 2
+    dy = (lat2d - lat2d[cy, cx]) * 111.32
+    dx = (lon2d - lon2d[cy, cx]) * 111.32 * np.cos(np.deg2rad(lat2d[cy, cx]))
+    r = np.hypot(dy, dx)
+    th = np.arctan2(dy, dx)
+
+    # A clean axisymmetric vortex plus azimuthal noise: V_t = V(r), no radial flow.
+    vt = 40.0 * (r / 150.0) * np.exp(1.0 - r / 150.0)
+    up = np.zeros((NZ, NY, NX, NUP), dtype=np.float32)
+    for k in range(NZ):
+        up[k, :, :, layout.upper_index("u")] = -vt * np.sin(th)
+        up[k, :, :, layout.upper_index("v")] = vt * np.cos(th)
+        up[k, :, :, layout.upper_index("t")] = (
+            300.0 - 0.01 * r + rng.normal(0, 2.0, size=(NY, NX)))
+    sfc = rng.normal(0, 1, size=(NY, NX, NSFC)).astype(np.float32)
+    sfc[:, :, -2], sfc[:, :, -1] = lon2d, lat2d
+    state = InitialState(up, sfc, lats, lons, _dt.datetime(2025, 9, 20))
+
+    out = ax.axisymmetrize(state)
+
+    # (1) the keep-as-is block is untouched, and the averaged block is not
+    assert np.array_equal(out.surface[:, :, 9:], state.surface[:, :, 9:])
+    assert not np.array_equal(out.surface[:, :, 2:9], state.surface[:, :, 2:9])
+
+    # (2) the averaged temperature is a function of radius alone
+    ti = layout.upper_index("t")
+    assert ax.asymmetry(out.upper[0, :, :, ti], lats, lons) < 0.05
+    assert ax.asymmetry(state.upper[0, :, :, ti], lats, lons) > 0.2
+
+    # (3) the vortex survived: averaging u and v as scalars would give ~0 here
+    _r, vt_out = ax.tangential_profile(out.upper, out.surface, 850)
+    _r0, vt_in = ax.tangential_profile(state.upper, state.surface, 850)
+    assert np.nanmax(vt_out) > 0.9 * np.nanmax(vt_in) > 10.0
+    print("ok test_axisymmetric_channel_policy")
+
+
 if __name__ == "__main__":
     test_ring_profile_and_balance()
     test_banded_profile()
@@ -216,4 +270,5 @@ if __name__ == "__main__":
     test_azimuthal_recovers_m4()
     test_quiescent_flattening()
     test_driver_vortex_bookkeeping()
+    test_axisymmetric_channel_policy()
     print("\nALL VORTEX OFFLINE TESTS PASSED")

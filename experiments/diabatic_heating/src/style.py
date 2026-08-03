@@ -43,6 +43,10 @@ C_INJ = "#7F7F7F"      # injected reference
 
 CMAP_PV = "RdBu_r"     # ΔPV (diverging, perceptually gentler than bwr)
 CMAP_Q = "BrBG"        # moisture anomaly (green = moist, brown = dry)
+CMAP_PV_ABS = "Reds"   # absolute PV — one-signed, so sequential (diagnostics/pv.py)
+
+C_PV_LINE = "deepskyblue"   # PV level lines drawn over the PV shading
+C_THETA = "black"           # isentropes
 
 C_GUIDE = "#8C8C8C"    # zero lines, reference lines, forcing-window shading
 C_NOTE = "#555555"     # caption / annotation text
@@ -105,7 +109,7 @@ def zero_line(ax) -> None:
 def forcing_span(ax, t_end: float, *, label: bool = True) -> None:
     """Shade the injection window [0, t_end] — clearer than a single dashed line.
 
-    Every run in this set injects over the first 24 nominal hours; what happens
+    Every run in this set injects over the first 24 hours; what happens
     to the right of the shading is free evolution, which is where the moisture
     binding shows up.
     """

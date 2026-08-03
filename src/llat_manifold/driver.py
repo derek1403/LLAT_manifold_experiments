@@ -97,6 +97,22 @@ def _zero_upper_locked(d_up, up_lock) -> None:
         d_up[:, :, :, idx] = 0.0
 
 
+def _resolve_state(cfg, dlampty) -> InitialState:
+    """The IC a run starts from: the real analysis, or a prebuilt idealized one.
+
+    ``ic_npz`` (alias ``background_npz``, the key ``driver_vortex`` already uses)
+    points at a saved :class:`InitialState` — e.g. the azimuthally averaged vortex
+    from ``scripts/make_axisymmetric_ic.py``, or a quiescent background. Building
+    the IC ahead of time rather than transforming it here keeps every run in a
+    sweep reading the identical bytes, and keeps the transform out of the hot loop.
+    """
+    p = cfg.get("ic_npz") or cfg.get("background_npz")
+    if p:
+        from .idealized_vortex.background import load_background
+        return load_background(p)
+    return load_initial_state(str(cfg["tc_id"]), str(cfg["init_time"]), dlampty)
+
+
 def _ctx(state, fore_i, lead_hr):
     return StepContext(fore_i=fore_i, lead_hr=lead_hr, initial_time=state.initial_time,
                        dlam_lats=state.dlam_lats, dlam_lons=state.dlam_lons)
@@ -130,7 +146,7 @@ def run(cfg: dict, dlampty, out_dir) -> list[str]:
     mode = cfg["mode"]
     pert = build_perturbation(cfg.get("perturbation", {}))
     active_idx = layout.active_lock_indices(pert.claimed_static_vars())
-    state = load_initial_state(str(cfg["tc_id"]), str(cfg["init_time"]), dlampty)
+    state = _resolve_state(cfg, dlampty)
     bundle_dir = io.data_dir(out_dir)
 
     if mode == "snapshot":

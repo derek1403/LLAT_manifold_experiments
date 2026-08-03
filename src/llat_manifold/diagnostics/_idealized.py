@@ -116,6 +116,25 @@ def theta_slice(t, p_hpa, cy):
     return t[:, cy, :] * (1000.0 / p_2d) ** (RD / CP)
 
 
+# Plot ceiling for every vertical section in the repo. Above ~200 hPa the model's
+# own error grows and the levels thin out (250/200/150/100/50 hPa), so anything
+# drawn up there is dominated by model noise rather than the response we injected.
+# Single source of truth: change it here and every r–z / r–p figure follows.
+P_TOP_HPA = 200.0
+
+
+def z_top_km(p_hpa, mean_z_km) -> float:
+    """Altitude [km] of :data:`P_TOP_HPA`, for figures whose y axis is height.
+
+    ``mean_z_km`` is the domain-mean geopotential height of each pressure level, so
+    the cap lands on the same physical surface as a pressure-axis figure's 200 hPa.
+    """
+    p = np.asarray(p_hpa, dtype=float)
+    z = np.asarray(mean_z_km, dtype=float)
+    order = np.argsort(p)                       # np.interp needs ascending x
+    return float(np.interp(P_TOP_HPA, p[order], z[order]))
+
+
 def heating_vertical_profile(heat_type: str):
     """The Deep/Shallow/Stratiform V(P) curve + a LaTeX title (port of the panel)."""
     p_plot = np.linspace(200, 1000, 100)

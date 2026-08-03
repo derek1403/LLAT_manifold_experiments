@@ -1,7 +1,7 @@
 """H4 mechanism clue — the manifold's condensation efficiency and the T–q attractor.
 
 Two bar panels over the six 5 K runs (inject ΔT / latent-equiv δq / measured δq ×
-strong / weak vortex), all at nominal hour 24:
+strong / weak vortex), all at hour 24:
 
 (a) Core max δT. The δq-only runs end up *warmer* than the directly heated runs
     (+1.83–1.85 K vs +1.19–1.49 K): injected ΔT gets advected and mixed away,
@@ -44,12 +44,13 @@ def _core_max_dT(run_dir, lead_hr=24, sigma=5.0):
     return float(np.nanmax(np.where(core[None], dT, np.nan)))
 
 
-def plot(lead_hr: int = 24, style: str = "note"):
+def plot(lead_hr: int = 24, style: str = "note", *, ic: str = D.DEFAULT_IC,
+         stat: str = D.DEFAULT_STAT):
     S.apply()
     labels, dT, es, el = [], [], [], []
     for fam, tag, lab in _RUNS:
         for init, who in _BAR_INITS:
-            run = str(D.run(fam, tag.format(init=init)))
+            run = str(D.run(fam, tag.format(init=init), ic=ic))
             s = D.energy_series(run)
             i24 = s["hour"].index(lead_hr)
             labels.append(f"{lab}\n{who}")
@@ -68,7 +69,7 @@ def plot(lead_hr: int = 24, style: str = "note"):
         axA.text(xi, v + 0.03, f"+{v:.2f} K", ha="center", fontsize=S.FS_ANNOT + 2.5,
                  weight="bold")
     axA.set_xticks(x, labels, fontsize=S.FS_TICK - 1)
-    axA.set_ylabel("core max δT at nominal hour 24  [K]")
+    axA.set_ylabel("core max δT at hour 24  [K]")
     axA.set_title("(the δq-only runs end up warmer than the heated ones)")
     axA.set_ylim(0, max(dT) * 1.2)
 
@@ -85,7 +86,7 @@ def plot(lead_hr: int = 24, style: str = "note"):
 
     S.panel_letters([axA, axB])
     fig.suptitle("H4 mechanism clue — condensation efficiency and the preferred T–q axis "
-                 f"(5 K runs, nominal hour {lead_hr})")
+                 f"(5 K runs, hour {lead_hr})")
     S.caption(fig, "whatever is injected — heat or moisture, much or little — the state relaxes "
                    "to L/S ≈ 1.3–1.8: one preferred thermo–moisture covariance axis; and pure-δq "
                    "runs end up warmer than heated ones (latent heat keeps cashing in)", style)
@@ -94,7 +95,10 @@ def plot(lead_hr: int = 24, style: str = "note"):
 
 
 if __name__ == "__main__":
-    ap = S.add_style_args(argparse.ArgumentParser(description=__doc__))
-    ap.add_argument("--out", default=str(D.FIGS / "h4_energy_accounting.png"))
+    ap = D.add_data_args(
+        S.add_style_args(argparse.ArgumentParser(description=__doc__)))
+    ap.add_argument("--out", default=None,
+                    help="default: figs/<ic>/<stat>/h4_energy_accounting.png")
     a = ap.parse_args()
-    S.save(plot(style=a.style), a.out, style=a.style, pdf=not a.no_pdf)
+    out = a.out or D.figs_dir(a.ic, a.stat) / "h4_energy_accounting.png"
+    S.save(plot(style=a.style, ic=a.ic, stat=a.stat), out, style=a.style, pdf=not a.no_pdf)

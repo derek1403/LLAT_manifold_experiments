@@ -115,7 +115,7 @@ def _eyewall_mask(vt850_2d, r_2d, bins, r_1d):
 def _pressure_yaxis(ax, p_hpa):
     """Log pressure y-axis, 1000 hPa at the bottom, labelled at the model levels."""
     ax.set_yscale("log")
-    ax.set_ylim(1000, 50)
+    ax.set_ylim(1000, _id.P_TOP_HPA)
     ax.set_yticks(p_hpa)
     ax.set_yticklabels([f"{int(p)}" for p in p_hpa])
     ax.minorticks_off()
@@ -242,7 +242,12 @@ def plot_nonhydrostatic_epsilon(bundle_path, out_png=None, baseline_path=None, *
             ax2.axvline(rmw_km, color="cyan", lw=1.4, ls="--", label=f"RMW≈{rmw_km:.0f} km")
             ax2.legend(loc="upper right", fontsize=10)
         ax2.set_xlim(0, min(750, r_km.max()))
-        ax2.set_ylim(float(np.nanmin(z_rz)), 16.0)
+        # Ceiling at 200 hPa (_idealized.P_TOP_HPA): above it the model's own error
+        # dominates. z_rz is (level, radius), so its radial mean gives each level's
+        # height for the pressure -> altitude conversion.
+        ax2.set_ylim(float(np.nanmin(z_rz)),
+                     _id.z_top_km(layout.pressure_levels(),
+                                  np.nanmean(z_rz, axis=1)))
         ax2.grid(True, linestyle="--", alpha=0.4)
         ax2.xaxis.set_minor_locator(ticker.AutoMinorLocator())
         ax2.set_xlabel("Radius from Storm Center [km]", fontsize=13, weight="bold")
@@ -357,7 +362,12 @@ def plot_hydrostatic_thermo(bundle_path, out_png=None, baseline_path=None, *,
         if np.isfinite(rmw_km):
             ax2.axvline(rmw_km, color="black", lw=1.2, ls="--")
         ax2.set_xlim(0, min(750, r_km.max()))
-        ax2.set_ylim(float(np.nanmin(z_rz)), 16.0)
+        # Ceiling at 200 hPa (_idealized.P_TOP_HPA): above it the model's own error
+        # dominates. z_rz is (level, radius), so its radial mean gives each level's
+        # height for the pressure -> altitude conversion.
+        ax2.set_ylim(float(np.nanmin(z_rz)),
+                     _id.z_top_km(layout.pressure_levels(),
+                                  np.nanmean(z_rz, axis=1)))
         ax2.grid(True, linestyle="--", alpha=0.4)
         ax2.xaxis.set_minor_locator(ticker.AutoMinorLocator())
         ax2.set_xlabel("Radius from Storm Center [km]", fontsize=13, weight="bold")

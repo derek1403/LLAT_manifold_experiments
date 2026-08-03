@@ -1,6 +1,6 @@
 """H0′ — under q-lock, does the response collapse, or just shrink?
 
-6×3 structure panel for the q-locked strong-vortex sweep. Columns are amplitudes
+6×3 structure panel for the δq = 0 strong-vortex sweep. Columns are amplitudes
 (0.5/2/4/6/8/10 K); rows are the ΔPV field on each column's own upper-min layer,
 its low-max layer, and the azimuthal-mean radius–height section. One symmetric
 colour scale per row. The 2σ heated core is circled on the map rows and marked on
@@ -36,8 +36,10 @@ def _core_circle(ax, lat2d, lon2d, sigma, **kw):
 
 def plot(init: str = D.STRONG, amps=(0.5, 2, 4, 6, 8, 10), lead_hr=24,
          zoom_deg=5.0, style: str = "note", prefix: str = "sweepq",
-         suptitle: str | None = None, caption: str | None = None):
+         suptitle: str | None = None, caption: str | None = None, *, ic: str = D.DEFAULT_IC,
+         stat: str = D.DEFAULT_STAT):
     S.apply()
+    from llat_manifold.diagnostics import _idealized as _id
     from llat_manifold.diagnostics.response import (
         analyze_pair, _azimuthal_mean, _find_runs)
     from llat_manifold.perturbations.heating import _amp_tag
@@ -45,13 +47,14 @@ def plot(init: str = D.STRONG, amps=(0.5, 2, 4, 6, 8, 10), lead_hr=24,
     cols = []
     for amp in amps:
         name = f"{prefix}_{_amp_tag(amp)}_{lead_hr}h_init{init}"
-        run = _find_runs(str(D.CATEGORY), name)[0]
+        run = _find_runs(str(D.category(ic)), name)[0]
         d = sorted((run / "data").glob(f"delta_continuous_*lead{lead_hr:03d}hr.npz"))[0]
         c = d.parent / d.name.replace("delta_", "control_")
-        m, aux = analyze_pair(d, c, sigma=5.0)
+        m, aux = analyze_pair(d, c, sigma=5.0, stat=stat)
         r_km, az = _azimuthal_mean(aux["dpv"], aux["lat2d"], aux["lon2d"])
         cols.append({"amp": amp, "m": m, "dpv": aux["dpv"], "az": az, "r_km": r_km,
                      "z_km": np.nanmean(aux["z"], axis=(1, 2)) / 1000.0,
+                     "p_hpa": aux["p_hpa"],
                      "lat2d": aux["lat2d"], "lon2d": aux["lon2d"]})
 
     ny, nx = cols[0]["lat2d"].shape
@@ -67,7 +70,9 @@ def plot(init: str = D.STRONG, amps=(0.5, 2, 4, 6, 8, 10), lead_hr=24,
 
     fig, axes = plt.subplots(3, len(cols), figsize=(3.15 * len(cols), 10.6),
                              gridspec_kw={"height_ratios": [1, 1, 1.35]})
-    rows = [("upperlevel", "min", lim_up), ("lowlevel", "max", lim_low)]
+    tag_up = "min" if stat == "max" else stat
+    tag_low = "max" if stat == "max" else stat
+    rows = [("upperlevel", tag_up, lim_up), ("lowlevel", tag_low, lim_low)]
     for j, col in enumerate(cols):
         lat, lon, m = col["lat2d"], col["lon2d"], col["m"]
         for i, (pole, tag, lim) in enumerate(rows):
@@ -89,7 +94,7 @@ def plot(init: str = D.STRONG, amps=(0.5, 2, 4, 6, 8, 10), lead_hr=24,
                     levels=np.linspace(-lim_az, lim_az, 41), cmap=S.CMAP_PV, extend="both")
         core_km = 2 * 5.0 * 0.25 * 111.32 * np.cos(np.deg2rad(lat[cy, cx]))
         ax.axvline(core_km, color="k", lw=0.9, ls="--", alpha=0.7)
-        ax.set_ylim(0, 15)
+        ax.set_ylim(0, _id.z_top_km(col["p_hpa"], col["z_km"]))
         ax.set_title(f"{col['amp']:g} K · azimuthal mean", fontsize=S.FS_TICK - 1)
         ax.tick_params(labelsize=S.FS_TICK - 3)
         ax.set_xlabel("radius [km]", fontsize=S.FS_TICK - 2)
@@ -104,18 +109,22 @@ def plot(init: str = D.STRONG, amps=(0.5, 2, 4, 6, 8, 10), lead_hr=24,
         cb = fig.colorbar(sm, ax=list(axes[i]), pad=0.008, fraction=0.02)
         cb.set_label("ΔPV  [PVU]", fontsize=S.FS_TICK - 1, weight="bold")
 
-    fig.suptitle(suptitle or (f"H0′ — q-locked sweep structure: shape survives, amplitude dies  "
-                              f"({D.CASE[init]}, nominal hour {lead_hr})"))
+    fig.suptitle(suptitle or (f"H0′ — δq = 0 sweep structure: shape survives, amplitude dies  "
+                              f"({D.CASE[init]}, hour {lead_hr})"))
     S.caption(fig, caption if caption is not None else (
-        "dashed circle = 2σ heated core, × = extremum; even with δq≡0 the pattern is "
+        "dashed circle = 2σ heated core, × = where the reduction sits; even with δq = 0 "
+        "the pattern is "
         "textbook (compact low core + upper lobe + outer wave train) — the lock takes "
         "amplitude, not the shape of the balance adjustment"), style)
     return fig
 
 
 if __name__ == "__main__":
-    ap = S.add_style_args(argparse.ArgumentParser(description=__doc__))
+    ap = D.add_data_args(
+        S.add_style_args(argparse.ArgumentParser(description=__doc__)))
     ap.add_argument("--init", default=D.STRONG)
-    ap.add_argument("--out", default=str(D.FIGS / "h0p_qlock_maps.png"))
+    ap.add_argument("--out", default=None,
+                    help="default: figs/<ic>/<stat>/h0p_qlock_maps.png")
     a = ap.parse_args()
-    S.save(plot(a.init, style=a.style), a.out, style=a.style, pdf=not a.no_pdf)
+    out = a.out or D.figs_dir(a.ic, a.stat) / "h0p_qlock_maps.png"
+    S.save(plot(a.init, style=a.style, ic=a.ic, stat=a.stat), out, style=a.style, pdf=not a.no_pdf)

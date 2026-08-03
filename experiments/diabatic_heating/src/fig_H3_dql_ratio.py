@@ -24,10 +24,11 @@ import _data as D
 import style as S
 
 
-def plot(lead_hr: int = 24, band=(0.75, 1.25), style: str = "note"):
+def plot(lead_hr: int = 24, band=(0.75, 1.25), style: str = "note", *, ic: str = D.DEFAULT_IC,
+         stat: str = D.DEFAULT_STAT):
     S.apply()
-    heat = D.sweep(D.FAMILY["heating_moist"][0], lead_hr)
-    dql = D.sweep(D.FAMILY["dq_latent"][0], lead_hr)
+    heat = D.sweep(D.FAMILY["heating_moist"][0], lead_hr, ic=ic, stat=stat)
+    dql = D.sweep(D.FAMILY["dq_latent"][0], lead_hr, ic=ic, stat=stat)
     inits = sorted(set(heat) & set(dql))
     color = S.case_colors(inits)
 
@@ -39,8 +40,8 @@ def plot(lead_hr: int = 24, band=(0.75, 1.25), style: str = "note"):
         a, b = dict(heat[init]), dict(dql[init])
         amps = sorted(set(a) & set(b))
         c = color[init]
-        for (key, name), ls, mk, lw in ((D.POLES[0], "-", "o", 2.8),
-                                        (D.POLES[1], "--", "s", 1.9)):
+        for (key, name), ls, mk, lw in ((D.poles(stat)[0], "-", "o", 2.8),
+                                        (D.poles(stat)[1], "--", "s", 1.9)):
             r = [b[x][key] / a[x][key] for x in amps]
             ax.plot(amps, r, color=c, ls=ls, lw=lw, marker=mk, ms=5,
                     mfc=c if ls == "-" else "none", zorder=3,
@@ -52,7 +53,7 @@ def plot(lead_hr: int = 24, band=(0.75, 1.25), style: str = "note"):
     ax.set_xlim(0, 10.5)
     ax.set_xlabel("Nominal amplitude amp_K  [K]")
     ax.set_ylabel("ΔPV ratio   latent-equiv δq ÷ heating")
-    ax.set_title(f"H3 — latent-heat equivalence ratio (nominal hour {lead_hr})")
+    ax.set_title(f"H3 — latent-heat equivalence ratio (hour {lead_hr})")
 
     # The two findings annotations, now real code (the old PNG had them hand-patched).
     ax.text(0.985, 1.0, " ratio = 1: c_p ΔT ↔ L_v δq equivalence ",
@@ -78,8 +79,11 @@ def plot(lead_hr: int = 24, band=(0.75, 1.25), style: str = "note"):
 
 
 if __name__ == "__main__":
-    ap = S.add_style_args(argparse.ArgumentParser(description=__doc__))
+    ap = D.add_data_args(
+        S.add_style_args(argparse.ArgumentParser(description=__doc__)))
     ap.add_argument("--lead", type=int, default=24)
-    ap.add_argument("--out", default=str(D.FIGS / "h3_dql_equivalence_ratio.png"))
+    ap.add_argument("--out", default=None,
+                    help="default: figs/<ic>/<stat>/h3_dql_equivalence_ratio.png")
     a = ap.parse_args()
-    S.save(plot(a.lead, style=a.style), a.out, style=a.style, pdf=not a.no_pdf)
+    out = a.out or D.figs_dir(a.ic, a.stat) / "h3_dql_equivalence_ratio.png"
+    S.save(plot(a.lead, style=a.style, ic=a.ic, stat=a.stat), out, style=a.style, pdf=not a.no_pdf)

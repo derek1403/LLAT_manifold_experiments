@@ -29,8 +29,18 @@ Two figures, both on continuous-mode runs:
 
 The ΔPV scalars are the **dipole** the heating must build: PV generation below the
 heating maximum (low-level tower) and destruction above it, both within the heated
-core (r ≤ 2σ). The x-axis is the iteration count in nominal hours (model steps are
-nominal 3 h, not strict physical time).
+core (r ≤ 2σ). The x-axis is the iteration count n scaled by the 3 h model step.
+
+**Caveat that survives the axis label**: n × 3 h is the model's own step count, not
+strict physical time — these are semi-linear perturbation iterations and must never
+be read against an observation clock.
+
+Each ΔPV field collapses to one number via :func:`_reduce`, selected by ``stat``:
+``max`` (the single-cell extremum) or ``p95``/``p90`` (the **mean over the top
+5 % / 10 %** of the same box). All three share the same population, so they sit on
+one axis; the tail means exist because one grid cell deciding an entire sweep
+curve makes that curve hop around for reasons that are not physics, and averaging
+~63 or ~127 cells is what removes that dependence.
 """
 from __future__ import annotations
 
@@ -41,6 +51,7 @@ import numpy as np
 
 from .. import io, layout
 from . import experiment_title, load_stamp
+from . import _idealized as _id
 from ._idealized import CP, RD, calculate_pv_spherical, fields_from_bundle
 from ..perturbations.heating import gaussian_centered, vertical_profile
 
@@ -50,6 +61,53 @@ _LOW_P = (700.0, 1000.0)
 _UP_P = (200.0, 500.0)
 _CORE_FACTOR = 2.0
 _KAPPA = RD / CP
+
+# ---- reduction statistics ------------------------------------------------- #
+# How the ΔPV *field* inside a pole's box collapses to one number.
+#
+# ``max`` is the single-cell extremum the first round of results used: the most
+# sensitive reading, and the jumpiest — one grid point out of ~1300 decides the
+# whole curve, so it hops between cells as the amplitude changes.
+#
+# ``p95`` / ``p90`` are **tail means**: the average of every point beyond that
+# percentile, i.e. the mean over [p95, p100] or [p90, p100] — the top 5 % or top
+# 10 % of the box. The point is that ~63 or ~127 cells vote instead of one, which
+# is what actually removes the single-point dependence; the percentile itself is
+# only the cut that defines the tail, never the reported value. Same population
+# (core × layer box) as ``max``, so all three sit on one axis and are directly
+# comparable, and each is bounded above by the next: p90 ≤ p95 ≤ max.
+STATS = ("max", "p95", "p90")
+DEFAULT_STAT = "max"
+_PCT = {"p95": 95.0, "p90": 90.0}
+
+# (metric prefix, extremum mode, pressure box) — the dipole this heating builds.
+_POLE_SPEC = (("lowlevel", "max", _LOW_P), ("upperlevel", "min", _UP_P))
+
+# Display names. The percentile ones say "mean" on purpose: reading "p95" as the
+# 95th-percentile *value* is the obvious misreading and it is worth spending the
+# characters to block it.
+_STAT_NAME = {"max": "max", "min": "min",
+              "p95": "top-5% mean", "p90": "top-10% mean"}
+_POLE_NAME = {"lowlevel": ("low-level", "700–1000 hPa"),
+              "upperlevel": ("upper-level", "200–500 hPa")}
+
+
+def _stat_key(pole: str, mode: str, stat: str) -> str:
+    """Per-stat metric key.
+
+    For ``stat="max"`` this reproduces the legacy names ``lowlevel_max`` /
+    ``upperlevel_min`` (the extremum mode differs per pole); the tail means get
+    ``lowlevel_p95``, ``upperlevel_p90``, … — pole-independent because the tail is
+    always the one pointing at that pole.
+    """
+    return f"{pole}_{mode if stat == 'max' else stat}"
+
+
+def stat_label(stat: str, pole: str) -> str:
+    """Display name of one pole's scalar, e.g. 'low-level 95th-pct ΔPV (700–1000 hPa)'."""
+    where, box = _POLE_NAME[pole]
+    mode = dict((p, m) for p, m, _b in _POLE_SPEC)[pole]
+    return f"{where} {_STAT_NAME[mode if stat == 'max' else stat]} ΔPV ({box})"
 
 
 def _key(p: Path) -> int:
@@ -92,29 +150,94 @@ def _core_mask(ny: int, nx: int, sigma: float, factor: float = _CORE_FACTOR):
     return r2 <= (factor * sigma) ** 2
 
 
-def _extremum(dpv, lev_mask, core, mode):
-    """(value, (k,j,i)) of the max/min of dpv over (lev_mask levels × core points)."""
-    sub = np.where(core[None, :, :], dpv, np.nan)
-    sub = np.where(lev_mask[:, None, None], sub, np.nan)
-    flat = np.nanargmax(sub) if mode == "max" else np.nanargmin(sub)
-    kji = np.unravel_index(flat, dpv.shape)
-    return float(dpv[kji]), kji
+def _reduce(dpv, lev_mask, core, mode, stat=DEFAULT_STAT):
+    """(value, (k,j,i), selection) for one pole over (lev_mask levels × core points).
+
+    ``stat="max"`` is the single-cell extremum (``mode`` picks max or min).
+
+    ``stat="p95"/"p90"`` return the **mean over the tail** pointing at that pole:
+    every point at or beyond the 95th (90th) percentile for a max pole, at or
+    below the 5th (10th) for a min pole. So p95 is the average of the top 5 % of
+    the box — ~63 cells — not the percentile value itself. That is the whole
+    reason for the statistic: an average over a tail cannot be moved by one grid
+    point the way an extremum can. One ``--stat`` flag therefore means the same
+    thing in both panels of a dipole figure.
+
+    Three things come back: the value, ``kji`` — a representative cell for figures
+    that must pick a map layer (the level carrying most of the tail's |ΔPV|, then
+    its strongest point in that level) — and ``selection``, the boolean tail set,
+    which :func:`_locate` turns into a position. For ``stat="max"`` the selection
+    is that one cell, so every downstream formula degenerates to the old extremum
+    behaviour exactly.
+    """
+    box = core[None, :, :] & lev_mask[:, None, None]
+    sub = np.where(box, dpv, np.nan)
+    if stat == "max":
+        flat = np.nanargmax(sub) if mode == "max" else np.nanargmin(sub)
+        kji = np.unravel_index(flat, dpv.shape)
+        sel = np.zeros(dpv.shape, dtype=bool)
+        sel[kji] = True
+        return float(dpv[kji]), kji, sel
+    if stat not in _PCT:
+        raise ValueError(f"unknown stat {stat!r} (expected one of {STATS})")
+    pct = _PCT[stat] if mode == "max" else 100.0 - _PCT[stat]
+    q = float(np.nanpercentile(sub, pct))
+    sel = box & ((dpv >= q) if mode == "max" else (dpv <= q))
+    value = float(dpv[sel].mean())          # the tail mean, not the cut
+    w = np.where(sel, np.abs(dpv), 0.0)
+    k = int(np.argmax(w.sum(axis=(1, 2))))
+    j, i = np.unravel_index(int(np.argmax(w[k])), w[k].shape)
+    return value, (k, int(j), int(i)), sel
 
 
-def _radius_km(j, i, lat2d, lon2d) -> float:
+def _radius_field(lat2d, lon2d) -> np.ndarray:
+    """Great-circle-ish distance [km] of every grid point from the domain centre."""
     cy, cx = lat2d.shape[0] // 2, lat2d.shape[1] // 2
-    dy = (lat2d[j, i] - lat2d[cy, cx]) * 111.32
-    dx = (lon2d[j, i] - lon2d[cy, cx]) * 111.32 * np.cos(np.deg2rad(lat2d[cy, cx]))
-    return float(np.hypot(dy, dx))
+    dy = (lat2d - lat2d[cy, cx]) * 111.32
+    dx = (lon2d - lon2d[cy, cx]) * 111.32 * np.cos(np.deg2rad(lat2d[cy, cx]))
+    return np.hypot(dy, dx)
 
 
-def analyze_pair(delta_path, control_path, *, sigma: float = 5.0):
-    """Full analysis of one δ/control pair.
+def _locate(sel, dpv, p, r2d):
+    """(pressure [hPa], radius [km]) of a reduction: |ΔPV|-weighted centroid of ``sel``.
 
-    Returns ``(metrics, aux)``. ``metrics`` holds the dipole scalars and where they
-    sit: ``lowlevel_max``/``upperlevel_min`` [PVU], ``*_p`` [hPa], ``*_r`` [km],
-    ``*_kji`` (grid indices), and ``center_850``. ``aux`` carries the fields needed
-    by the theory evaluation (perturbed PV, perturbed T, pressure levels).
+    With ``stat="max"`` the selection is a single cell, so this returns exactly the
+    extremum's level and radius. With a percentile it is the centre of mass of the
+    exceedance region — which is what actually moves smoothly with amplitude, and
+    therefore the honest way to say "the response moved into the core".
+    """
+    w = np.where(sel, np.abs(dpv), 0.0)
+    tot = float(w.sum())
+    if tot <= 0.0:
+        return float("nan"), float("nan")
+    if np.count_nonzero(sel) == 1:
+        # Degenerate case (always true for stat="max"): read the cell's coordinates
+        # straight off rather than through a weighted division, so the extremum
+        # path stays bit-identical to a plain index lookup.
+        k, j, i = (int(a[0]) for a in np.nonzero(sel))
+        return float(p[k]), float(r2d[j, i])
+    p_c = float((w.sum(axis=(1, 2)) * p).sum() / tot)
+    r_c = float((w * r2d[None, :, :]).sum() / tot)
+    return p_c, r_c
+
+
+def analyze_pair(delta_path, control_path, *, sigma: float = 5.0,
+                 stat: str = DEFAULT_STAT):
+    """Full analysis of one δ/control pair, under every reduction statistic.
+
+    Returns ``(metrics, aux)``. For the requested ``stat``, ``metrics`` holds the
+    dipole scalars and where they sit under the unsuffixed keys ``lowlevel`` /
+    ``upperlevel`` [PVU], ``*_p`` [hPa], ``*_r`` [km], ``*_kji`` (grid indices),
+    plus ``center_850`` and ``stat``.
+
+    Every statistic in :data:`STATS` is *also* reported under its own key
+    (``lowlevel_max``, ``lowlevel_p95``, ``upperlevel_p90_r``, …). The ΔPV field is
+    already in memory, so computing all three costs a couple of percentile calls
+    and the extremum-vs-percentile comparison figures need no second pass over the
+    bundles. ``lowlevel_max``/``upperlevel_min`` double as the legacy key names.
+
+    ``aux`` carries the fields the theory evaluation needs (perturbed PV,
+    perturbed T, pressure levels).
     """
     d_up, d_sfc = io.load_delta_bundle(delta_path)
     c_up, c_sfc = io.load_delta_bundle(control_path)
@@ -127,22 +250,22 @@ def analyze_pair(delta_path, control_path, *, sigma: float = 5.0):
 
     p = np.asarray(p_hpa, dtype=float)[: dpv.shape[0]]
     core = _core_mask(dpv.shape[1], dpv.shape[2], sigma)
-    v_low, kji_low = _extremum(dpv, (p >= _LOW_P[0]) & (p <= _LOW_P[1]), core, "max")
-    v_up, kji_up = _extremum(dpv, (p >= _UP_P[0]) & (p <= _UP_P[1]), core, "min")
+    r2d = _radius_field(lat2d, lon2d)
     cy, cx = dpv.shape[1] // 2, dpv.shape[2] // 2
     i850 = int(np.argmin(np.abs(p - 850.0)))
 
-    metrics = {
-        "lowlevel_max": v_low,
-        "lowlevel_p": float(p[kji_low[0]]),
-        "lowlevel_r": _radius_km(kji_low[1], kji_low[2], lat2d, lon2d),
-        "lowlevel_kji": kji_low,
-        "upperlevel_min": v_up,
-        "upperlevel_p": float(p[kji_up[0]]),
-        "upperlevel_r": _radius_km(kji_up[1], kji_up[2], lat2d, lon2d),
-        "upperlevel_kji": kji_up,
-        "center_850": float(dpv[i850, cy, cx]),
-    }
+    metrics = {"stat": stat, "center_850": float(dpv[i850, cy, cx])}
+    for pole, mode, box in _POLE_SPEC:
+        lev = (p >= box[0]) & (p <= box[1])
+        for s in STATS:
+            val, kji, sel = _reduce(dpv, lev, core, mode, s)
+            p_c, r_c = _locate(sel, dpv, p, r2d)
+            key = _stat_key(pole, mode, s)
+            metrics[key], metrics[f"{key}_p"] = val, p_c
+            metrics[f"{key}_r"], metrics[f"{key}_kji"] = r_c, kji
+            if s == stat:                      # the selected stat also answers to
+                metrics[pole], metrics[f"{pole}_p"] = val, p_c      # the bare names
+                metrics[f"{pole}_r"], metrics[f"{pole}_kji"] = r_c, kji
     aux = {"pv_pert": pv_pert, "t_pert": t, "pv_ctrl": pv_ctrl, "t_ctrl": ct,
            "p_hpa": p, "dpv": dpv, "z": _z, "lat2d": lat2d, "lon2d": lon2d}
     return metrics, aux
@@ -175,8 +298,8 @@ def _pert_params(run_dir) -> dict:
     return pert
 
 
-def pv_response_series(run_dir) -> dict:
-    """Model ΔPV extrema and the accumulated diabatic-source theory per iteration.
+def pv_response_series(run_dir, *, stat: str = DEFAULT_STAT) -> dict:
+    """Model ΔPV scalars and the accumulated diabatic-source theory per iteration.
 
     Theory: the Ertel-PV diabatic source at leading order (Haynes–McIntyre),
         D(PV)/Dt = PV · ∂θ̇/∂θ,      θ̇ = Dθ/Dt = the injected heating rate,
@@ -209,9 +332,9 @@ def pv_response_series(run_dir) -> dict:
         ddtheta_dp_step = np.gradient(dT_step * (1.0e5 / p3) ** _KAPPA, p_pa, axis=0)
         th_field = None
 
-    out: dict = {"hour": []}
+    out: dict = {"hour": [], "stat": stat}
     for lead, d, c in pairs:
-        m, aux = analyze_pair(d, c, sigma=sigma)
+        m, aux = analyze_pair(d, c, sigma=sigma, stat=stat)
         if is_heating:
             if th_field is None:
                 th_field = np.zeros_like(aux["pv_ctrl"])
@@ -219,11 +342,13 @@ def pv_response_series(run_dir) -> dict:
                 theta_ctrl = aux["t_ctrl"] * (1.0e5 / p3) ** _KAPPA
                 dtheta_dp = np.gradient(theta_ctrl, p_pa, axis=0)
                 th_field += aux["pv_ctrl"] * ddtheta_dp_step / dtheta_dp
-            th_low, th_up, _ = _dpv_reduce(th_field, sigma=sigma)
+            # The theory field gets the same reduction as the model, so switching
+            # --stat moves both curves together and the gap stays meaningful.
+            th_low, th_up, _ = _dpv_reduce(th_field, sigma=sigma, stat=stat)
             m["theory_low"], m["theory_up"] = th_low, th_up
         out["hour"].append(lead)
         for k, v in m.items():
-            if not k.endswith("_kji"):
+            if not k.endswith("_kji") and k != "stat":
                 out.setdefault(k, []).append(v)
     return out
 
@@ -235,14 +360,14 @@ _C_LOW, _C_UP = "tab:blue", "tab:orange"      # dipole metric hues (fixed assign
 _C_WEAK, _C_STRONG = "tab:blue", "tab:red"    # init-case hues in the sweep figure
 
 
-def plot_pv_timeseries(run_dir, out_png=None):
+def plot_pv_timeseries(run_dir, out_png=None, *, stat: str = DEFAULT_STAT):
     """ΔPV per iteration, model (solid) vs state-based theory (dashed), per pole."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     run_dir = Path(run_dir)
-    s = pv_response_series(run_dir)
+    s = pv_response_series(run_dir, stat=stat)
     pert = _pert_params(run_dir)
     t_end = int(pert["forcing_steps"]) * 3
 
@@ -253,18 +378,18 @@ def plot_pv_timeseries(run_dir, out_png=None):
         what = "heating" if has_theory else "forcing"
         ax.axvline(t_end, color="grey", lw=1.0, ls=":",
                    label=f"{what} ends ({t_end} h)")
-    ax.plot(s["hour"], s["lowlevel_max"], color=_C_LOW, lw=2.0,
-            marker="o", ms=4, label="model  max ΔPV 700–1000 hPa")
+    ax.plot(s["hour"], s["lowlevel"], color=_C_LOW, lw=2.0,
+            marker="o", ms=4, label=f"model  {stat_label(stat, 'lowlevel')}")
     theory_lab = r"theory  $\int \mathrm{PV}\,(\partial\dot\theta/\partial\theta)\,\mathrm{d}t$"
     if has_theory:
         ax.plot(s["hour"], s["theory_low"], color=_C_LOW, lw=2.0, ls="--",
                 label=f"{theory_lab}  low pole")
-    ax.plot(s["hour"], s["upperlevel_min"], color=_C_UP, lw=2.0,
-            marker="s", ms=4, label="model  min ΔPV 200–500 hPa")
+    ax.plot(s["hour"], s["upperlevel"], color=_C_UP, lw=2.0,
+            marker="s", ms=4, label=f"model  {stat_label(stat, 'upperlevel')}")
     if has_theory:
         ax.plot(s["hour"], s["theory_up"], color=_C_UP, lw=2.0, ls="--",
                 label=f"{theory_lab}  upper pole")
-    ax.set_xlabel("Iteration n  (nominal hour)", fontsize=13, weight="bold")
+    ax.set_xlabel("Iteration n  (hour)", fontsize=13, weight="bold")
     ax.set_ylabel("ΔPV  [PVU]", fontsize=13, weight="bold")
     ax.set_xlim(s["hour"][0], s["hour"][-1])
     ax.grid(True, linestyle="--", alpha=0.5)
@@ -304,8 +429,13 @@ def _find_runs(category_dir, pattern: str, family: str | None = None):
     return sorted(list(base.glob(pattern)) + list(base.glob(f"*/{pattern}")))
 
 
-def _sweep_points(category_dir, lead_hr: int, pattern: str, family: str | None = None):
-    """{init_time: [(amp_K, metrics)]} at the requested lead over sweep run dirs."""
+def _sweep_points(category_dir, lead_hr: int, pattern: str, family: str | None = None,
+                  *, stat: str = DEFAULT_STAT):
+    """{init_time: [(amp_K, metrics)]} at the requested lead over sweep run dirs.
+
+    Each ``metrics`` dict carries every statistic in :data:`STATS`, so a caller
+    that wants the extremum-vs-percentile comparison reads one sweep, not three.
+    """
     by_init: dict[str, list] = {}
     for run in _find_runs(category_dir, pattern, family):
         data = run / "data"
@@ -318,13 +448,13 @@ def _sweep_points(category_dir, lead_hr: int, pattern: str, family: str | None =
             continue
         cfg = load_stamp(run).get("resolved_config", {})
         pert = _pert_params(run)
-        m, _aux = analyze_pair(d, c, sigma=float(pert["sigma"]))
+        m, _aux = analyze_pair(d, c, sigma=float(pert["sigma"]), stat=stat)
         by_init.setdefault(str(cfg.get("init_time", "?")), []).append(
             (float(pert["amp_K"]), m))
     if not by_init:
         raise FileNotFoundError(
             f"no sweep runs matching {pattern!r} with lead {lead_hr:03d}h under {category_dir}")
-    return {k: sorted(v) for k, v in sorted(by_init.items())}
+    return {k: sorted(v, key=lambda t: t[0]) for k, v in sorted(by_init.items())}
 
 
 def _annotate_loc(ax, amps, vals, pts, pole, above):
@@ -338,18 +468,21 @@ def _annotate_loc(ax, amps, vals, pts, pole, above):
 
 
 def plot_amplitude_sweep(category_dir, out_png=None, *, lead_hr: int = 24,
-                         pattern: str = "sweep_*", family: str | None = None):
+                         pattern: str = "sweep_*", family: str | None = None,
+                         stat: str = DEFAULT_STAT):
     """ΔPV dipole scalars at a fixed lead vs heating amplitude, per init time.
 
     Each point carries a small ``(pressure level, radius from centre)`` tag locating
-    its extremum. The dotted grey line through the origin is pinned to each curve's
-    smallest amplitude — the semi-linear expectation; departure is manifold curvature.
+    the response — the extremum cell for ``stat="max"``, the centre of mass of the
+    exceedance region for a percentile. The dotted grey line through the origin is
+    pinned to each curve's smallest amplitude — the semi-linear expectation;
+    departure is manifold curvature.
     """
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    points = _sweep_points(category_dir, lead_hr, pattern, family)
+    points = _sweep_points(category_dir, lead_hr, pattern, family, stat=stat)
     case_color = {}
     palette = [_C_WEAK, _C_STRONG, "tab:green", "tab:purple"]
     for i, init in enumerate(points):
@@ -360,13 +493,13 @@ def plot_amplitude_sweep(category_dir, out_png=None, *, lead_hr: int = 24,
     ref_labeled = False
     for init, pts in points.items():
         amps = np.array([a for a, _ in pts])
-        low = np.array([m["lowlevel_max"] for _, m in pts])
-        up = np.array([m["upperlevel_min"] for _, m in pts])
+        low = np.array([m["lowlevel"] for _, m in pts])
+        up = np.array([m["upperlevel"] for _, m in pts])
         c = case_color[init]
         ax.plot(amps, low, color=c, lw=2.0, marker="o", ms=5,
-                label=f"init {init}  max ΔPV 700–1000 hPa")
+                label=f"init {init}  {stat_label(stat, 'lowlevel')}")
         ax.plot(amps, up, color=c, lw=2.0, ls="-.", marker="s", ms=5,
-                mfc="none", label=f"init {init}  min ΔPV 200–500 hPa")
+                mfc="none", label=f"init {init}  {stat_label(stat, 'upperlevel')}")
         _annotate_loc(ax, amps, low, pts, "lowlevel", above=True)
         _annotate_loc(ax, amps, up, pts, "upperlevel", above=False)
         # Semi-linear reference through the origin, slope from the smallest amp.
@@ -377,11 +510,11 @@ def plot_amplitude_sweep(category_dir, out_png=None, *, lead_hr: int = 24,
                                       if not ref_labeled else None))
             ref_labeled = True
     ax.set_xlabel("Heating amplitude amp_K  [K]", fontsize=13, weight="bold")
-    ax.set_ylabel(f"ΔPV at nominal hour {lead_hr}  [PVU]", fontsize=13, weight="bold")
+    ax.set_ylabel(f"ΔPV at hour {lead_hr}  [PVU]", fontsize=13, weight="bold")
     ax.set_xlim(left=0)
     ax.grid(True, linestyle="--", alpha=0.5)
     ax.legend(loc="best", fontsize=10)
-    ax.set_title(f"Diabatic heating amplitude sweep — ΔPV response (nominal hour {lead_hr})",
+    ax.set_title(f"Diabatic heating amplitude sweep — ΔPV response (hour {lead_hr})",
                  fontsize=13, weight="bold")
     fig.tight_layout()
     if out_png is not None:
@@ -409,15 +542,19 @@ def _azimuthal_mean(dpv, lat2d, lon2d, *, r_max_km=550.0, dr_km=25.0):
 def plot_sweep_maps(category_dir, init_time, out_png=None, *,
                     amps=(0.5, 2.0, 4.0, 6.0, 8.0, 10.0), lead_hr: int = 24,
                     per_K: bool = False, pattern: str = "sweep_{amp}_{h}h_init{init}",
-                    zoom_deg: float = 5.0):
+                    zoom_deg: float = 5.0, stat: str = DEFAULT_STAT):
     """6×3 structure panel: columns = amplitudes, rows = ΔPV views at one lead.
 
-    Row 1: lon–lat ΔPV on each column's own upper-level *min* layer (200–500 hPa);
-    Row 2: lon–lat ΔPV on each column's own low-level *max* layer (700–1000 hPa);
-    Row 3: azimuthal-mean ΔPV radius–height section. One shared symmetric colour
-    scale per row. ``per_K=True`` plots ΔPV/amp_K instead — if the response were
-    semi-linear all six columns would look identical, so the column where the shape
-    starts to deform is where nonlinearity kicks in.
+    Row 1: lon–lat ΔPV on each column's own upper-level layer (200–500 hPa);
+    Row 2: lon–lat ΔPV on each column's own low-level layer (700–1000 hPa);
+    Row 3: azimuthal-mean ΔPV radius–height section, capped at
+    :data:`_idealized.P_TOP_HPA`. One shared symmetric colour scale per row.
+    ``per_K=True`` plots ΔPV/amp_K instead — if the response were semi-linear all
+    six columns would look identical, so the column where the shape starts to
+    deform is where nonlinearity kicks in.
+
+    Which layer each panel sits on follows ``stat``: the extremum's level for
+    ``max``, the level carrying most of the exceedance mass for a percentile.
     """
     import matplotlib
     matplotlib.use("Agg")
@@ -439,12 +576,13 @@ def plot_sweep_maps(category_dir, init_time, out_png=None, *,
             raise FileNotFoundError(f"no lead-{lead_hr:03d}h bundle under {run}")
         c = d[0].parent / d[0].name.replace("delta_", "control_")
         pert = _pert_params(run)
-        m, aux = analyze_pair(d[0], c, sigma=float(pert["sigma"]))
+        m, aux = analyze_pair(d[0], c, sigma=float(pert["sigma"]), stat=stat)
         scale = 1.0 / amp if per_K else 1.0
         r_km, az = _azimuthal_mean(aux["dpv"], aux["lat2d"], aux["lon2d"])
         cols.append({"amp": amp, "m": m, "dpv": aux["dpv"] * scale,
                      "az": az * scale, "r_km": r_km,
                      "z_km": np.nanmean(aux["z"], axis=(1, 2)) / 1000.0,
+                     "p_hpa": aux["p_hpa"],
                      "lat2d": aux["lat2d"], "lon2d": aux["lon2d"]})
 
     ny, nx = cols[0]["lat2d"].shape
@@ -462,7 +600,8 @@ def plot_sweep_maps(category_dir, init_time, out_png=None, *,
 
     fig, axes = plt.subplots(3, len(cols), figsize=(3.1 * len(cols), 10.5),
                              gridspec_kw={"height_ratios": [1, 1, 1.35]})
-    rows = [("upperlevel", "min", lim_up), ("lowlevel", "max", lim_low)]
+    rows = [("upperlevel", _STAT_NAME["min" if stat == "max" else stat], lim_up),
+            ("lowlevel", _STAT_NAME["max" if stat == "max" else stat], lim_low)]
     for j, col in enumerate(cols):
         lat, lon, m = col["lat2d"], col["lon2d"], col["m"]
         for i, (pole, tag, lim) in enumerate(rows):
@@ -481,7 +620,7 @@ def plot_sweep_maps(category_dir, init_time, out_png=None, *,
         imz = ax.contourf(col["r_km"], col["z_km"], col["az"],
                           levels=np.linspace(-lim_az, lim_az, 41), cmap="bwr",
                           extend="both")
-        ax.set_ylim(0, 15)
+        ax.set_ylim(0, _id.z_top_km(col["p_hpa"], col["z_km"]))
         ax.set_title(f"{col['amp']:g} K · azimuthal mean", fontsize=9, weight="bold")
         ax.tick_params(labelsize=7)
         ax.set_xlabel("radius [km]", fontsize=8)
@@ -499,7 +638,7 @@ def plot_sweep_maps(category_dir, init_time, out_png=None, *,
     kind = "ΔPV/amp_K (semi-linearity view)" if per_K else "ΔPV (absolute)"
     forcing = "δq-only" if _pert_params(run).get("type") == "moisture" else "Heating"
     fig.suptitle(f"{forcing} amplitude sweep structure — init {init_time}, "
-                 f"nominal hour {lead_hr} — {kind}", fontsize=13, weight="bold")
+                 f"hour {lead_hr} — {kind}", fontsize=13, weight="bold")
     if out_png is not None:
         fig.savefig(out_png, dpi=200, bbox_inches="tight")
         print(f"[response] wrote {out_png}")
@@ -508,10 +647,11 @@ def plot_sweep_maps(category_dir, init_time, out_png=None, *,
 
 def plot_sweep_comparison(category_dir, out_png=None, *, lead_hr: int = 24,
                           pattern_a: str = "sweep_*", label_a: str = "moist (q free)",
-                          pattern_b: str = "sweepq_*", label_b: str = "q-locked (δq=0)",
+                          pattern_b: str = "sweepq_*", label_b: str = "δq = 0",
                           suptitle: str = "Moisture binding of the heating→PV "
-                          "response — moist vs q-locked"):
-    """Moist vs q-locked ΔPV amplitude curves — the moisture-binding probe.
+                          "response — moist vs δq = 0",
+                          stat: str = DEFAULT_STAT):
+    """Moist vs δq = 0 ΔPV amplitude curves — the moisture-binding probe.
 
     Solid = runs where the moisture channel co-evolves with the heating; dashed =
     runs with δq pinned to the control each step. The gap between the two curves is
@@ -522,15 +662,15 @@ def plot_sweep_comparison(category_dir, out_png=None, *, lead_hr: int = 24,
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    pts_a = _sweep_points(category_dir, lead_hr, pattern_a)
-    pts_b = _sweep_points(category_dir, lead_hr, pattern_b)
+    pts_a = _sweep_points(category_dir, lead_hr, pattern_a, stat=stat)
+    pts_b = _sweep_points(category_dir, lead_hr, pattern_b, stat=stat)
     palette = [_C_WEAK, _C_STRONG, "tab:green", "tab:purple"]
     inits = sorted(set(pts_a) | set(pts_b))
     color = {init: palette[i % len(palette)] for i, init in enumerate(inits)}
 
     fig, (axl, axr) = plt.subplots(1, 2, figsize=(15, 6), sharex=True)
-    for ax, key, name in ((axl, "lowlevel_max", "max ΔPV 700–1000 hPa"),
-                          (axr, "upperlevel_min", "min ΔPV 200–500 hPa")):
+    for ax, key, name in ((axl, "lowlevel", stat_label(stat, "lowlevel")),
+                          (axr, "upperlevel", stat_label(stat, "upperlevel"))):
         ax.axhline(0, color="grey", lw=0.8)
         for init in inits:
             c = color[init]
@@ -545,7 +685,7 @@ def plot_sweep_comparison(category_dir, out_png=None, *, lead_hr: int = 24,
         ax.set_title(name, fontsize=12, weight="bold")
         ax.grid(True, linestyle="--", alpha=0.5)
         ax.set_xlim(left=0)
-    axl.set_ylabel(f"ΔPV at nominal hour {lead_hr}  [PVU]", fontsize=12, weight="bold")
+    axl.set_ylabel(f"ΔPV at hour {lead_hr}  [PVU]", fontsize=12, weight="bold")
     axl.legend(loc="best", fontsize=9)
     fig.suptitle(suptitle, fontsize=13, weight="bold")
     fig.tight_layout()
@@ -558,11 +698,21 @@ def plot_sweep_comparison(category_dir, out_png=None, *, lead_hr: int = 24,
 _CP_E, _LV_E = 1004.0, 2.5e6
 
 # Human-readable "what was injected" labels for the run families (figure titles).
+# Interventions are named by the constraint they impose (δq = 0), not by the
+# mechanism that imposes it ("lock q") — the constraint is what the reader has to
+# hold in mind when interpreting the curve.
 _FAMILY_LABEL = {
     "heating_moist": "inject ΔT (heating) — q free",
-    "heating_qlock": "inject ΔT (heating) — δq locked to 0",
+    "heating_qlock": "inject ΔT (heating) — δq = 0",
+    "heating_wlock": "inject ΔT (heating) — δw = 0",
+    "heating_zlock": "inject ΔT (heating) — δz = 0",
     "dq_latent":     "inject δq only — latent-equivalent (equal energy to heating)",
     "dq_measured":   "inject δq only — measured scaling (≈0.4–0.5× heating energy)",
+    "dq_tlock":      "inject δq only — δT = 0",
+    "dq_uvlock":     "inject δq only — δu = δv = 0",
+    "dq_bl":         "inject δq only — boundary layer (850–1000 hPa)",
+    "dq_ft":         "inject δq only — free troposphere (400–700 hPa)",
+    "dq_offcore":    "inject δq only — quiescent side (off-vortex)",
 }
 
 
@@ -571,6 +721,170 @@ def _mass_weights(nz: int) -> np.ndarray:
     p = np.asarray(layout.pressure_levels(), dtype=float)[:nz]
     edges = np.concatenate([[p[0]], (p[:-1] + p[1:]) / 2, [p[-1]]])
     return np.diff(edges) * 100.0 / 9.80665
+
+
+# --------------------------------------------------------------------------- #
+# Confinement of the thermal response — the Rossby-radius question
+#
+# ``energy_series`` and the ``core max δT`` used by the H4 figure both answer
+# "how big is the response in a fixed 2σ disc". Neither answers "how far did it
+# spread", which is the question local-Rossby-radius theory actually makes a
+# prediction about (small L_R ⇒ the anomaly is trapped near the axis). Two traps
+# the fixed-disc numbers fall into, both of which the functions below avoid:
+#
+#   1. A single-cell ``max`` over *all* levels does not measure the injected warm
+#      core. The Deep profile peaks at 600 hPa and vanishes at 200 hPa, yet the
+#      winning cell is routinely found at 100–250 hPa, where the tropopause's huge
+#      static stability turns a small vertical displacement into a large δT. Always
+#      restrict to the band the heating lives in — hence ``p_band``.
+#   2. A *mean over a fixed area* rewards a broad anomaly and penalises a confined
+#      one, which is backwards for a confinement test. Integrate instead, and read
+#      the radius that contains a given fraction.
+#
+# Both are computed off the column sensible-energy anomaly cp·∫δT dm, which is the
+# quantity a heating budget conserves, not off δT at one level.
+# --------------------------------------------------------------------------- #
+def _grid_frame(csfc):
+    """(r2d [km], per-cell area [km²]) about the domain centre, from a control bundle."""
+    lat2d, lon2d = csfc[:, :, -1], csfc[:, :, -2]
+    cy, cx = lat2d.shape[0] // 2, lat2d.shape[1] // 2
+    coslat = np.cos(np.deg2rad(lat2d[cy, cx]))
+    dy = (lat2d - lat2d[cy, cx]) * 111.32
+    dx = (lon2d - lon2d[cy, cx]) * 111.32 * coslat
+    dlat = float(abs(lat2d[cy + 1, cx] - lat2d[cy, cx]))
+    dlon = float(abs(lon2d[cy, cx + 1] - lon2d[cy, cx]))
+    return np.hypot(dy, dx), (dlat * 111.32) * (dlon * 111.32 * coslat)
+
+
+def _lead_paths(run_dir, lead_hr: int):
+    """The (delta, control) pair at one lead of a continuous run."""
+    for lead, d, c in _continuous_pairs(Path(run_dir)):
+        if lead == lead_hr:
+            return d, c
+    raise FileNotFoundError(f"{run_dir}: no lead {lead_hr} h")
+
+
+def warm_core_profile(run_dir, lead_hr: int = 24, *, p_band=(400.0, 700.0),
+                      dr_km: float = 25.0, r_max_km: float = 1000.0):
+    """(r [km], azimuthal-mean mass-weighted δT [K] over ``p_band``) at one lead.
+
+    The honest picture of "how warm, how far out". ``p_band`` defaults to the layer
+    the Deep heating profile occupies, so an upper-level displacement signal cannot
+    masquerade as the warm core.
+    """
+    d, c = _lead_paths(run_dir, lead_hr)
+    up, _ = io.load_delta_bundle(d)
+    _cup, csfc = io.load_delta_bundle(c)
+    p = np.asarray(layout.pressure_levels(), dtype=float)[: up.shape[0]]
+    band = (p >= p_band[0]) & (p <= p_band[1])
+    dm = _mass_weights(up.shape[0])
+    dT = np.average(up[..., layout.upper_index("t")][band], axis=0,
+                    weights=dm[band])
+    r2d, _area = _grid_frame(csfc)
+    edges = np.arange(0.0, r_max_km + dr_km, dr_km)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    prof = np.full(centers.size, np.nan)
+    for b in range(centers.size):
+        m = (r2d >= edges[b]) & (r2d < edges[b + 1])
+        if m.any():
+            prof[b] = dT[m].mean()
+    return centers, prof
+
+
+def energy_cumulative(run_dir, lead_hr: int = 24):
+    """(radius [km], cumulative fraction) of the positive column sensible anomaly.
+
+    The curve :func:`confinement_radii` reads r50 and r80 off. Exposed so a figure
+    plots the same accumulation the radii came from rather than rebuilding it from
+    an azimuthal profile — the two are *not* the same curve (an azimuthal mean has
+    already thrown away the area weighting), and a figure whose markers do not sit
+    on its own curves is worse than no figure.
+    """
+    d, c = _lead_paths(run_dir, lead_hr)
+    up, _ = io.load_delta_bundle(d)
+    _cup, csfc = io.load_delta_bundle(c)
+    r2d, area = _grid_frame(csfc)
+    col = _CP_E * np.einsum("kyx,k->yx", up[..., layout.upper_index("t")],
+                            _mass_weights(up.shape[0]))
+    order = np.argsort(r2d.ravel())
+    cum = np.cumsum(np.clip(col, 0.0, None).ravel()[order]) * area * 1e6
+    return r2d.ravel()[order], cum / cum[-1] if cum[-1] > 0 else cum
+
+
+def confinement_radii(run_dir, lead_hr: int = 24, *, sigma: float | None = None,
+                      p_band=(400.0, 700.0)) -> dict:
+    """How far the thermal response spread, and how the old fixed-disc numbers compare.
+
+    Returns, at ``lead_hr``:
+
+    ``r50`` / ``r80`` [km]
+        Radii containing 50 % / 80 % of the *positive* column sensible-energy
+        anomaly ``cp·∫δT dm``, accumulated outward with proper area weighting.
+        The confinement metric: a small L_R should give a small r50.
+    ``core_frac``
+        Fraction of that positive anomaly inside the 2σ heated core.
+    ``e_pos`` / ``e_net`` [PJ]
+        Domain-integrated positive-only and signed column sensible anomaly. The gap
+        between them is the compensating cold anomaly the adjustment leaves behind.
+    ``dT_band_max`` / ``dT_band_mean`` [K]
+        Core max and core mean of the ``p_band`` mass-weighted δT — the corrected
+        counterparts of the H4 figure's panel (a).
+    ``dT_all_max`` [K] / ``dT_all_max_p`` [hPa] / ``dT_all_max_r`` [km]
+        The *uncorrected* all-level single-cell core max and where it sits, kept so
+        a figure can show the old number next to the level it was actually read off.
+    ``dT_band3_max`` [K] / ``dT_band3_max_p`` / ``dT_band3_max_r``
+        The identical single-cell reduction with the level range restricted to
+        ``p_band`` — same operator, same disc, only the levels differ, which is what
+        makes the two numbers a fair comparison.
+    """
+    d, c = _lead_paths(run_dir, lead_hr)
+    up, _ = io.load_delta_bundle(d)
+    _cup, csfc = io.load_delta_bundle(c)
+    sigma = float(_pert_params(run_dir)["sigma"]) if sigma is None else float(sigma)
+
+    p = np.asarray(layout.pressure_levels(), dtype=float)[: up.shape[0]]
+    dm = _mass_weights(up.shape[0])
+    dT3 = up[..., layout.upper_index("t")]
+    r2d, area = _grid_frame(csfc)
+
+    col = _CP_E * np.einsum("kyx,k->yx", dT3, dm)          # J m⁻²
+    pos = np.clip(col, 0.0, None)
+    order = np.argsort(r2d.ravel())
+    cum = np.cumsum(pos.ravel()[order]) * area * 1e6        # J  (km² → m²)
+    r_sorted = r2d.ravel()[order]
+    total = float(cum[-1])
+
+    def _radius_of(frac):
+        if total <= 0.0:
+            return float("nan")
+        return float(r_sorted[np.searchsorted(cum, frac * total)])
+
+    core_mask = _core_mask(dT3.shape[1], dT3.shape[2], sigma)
+    band = (p >= p_band[0]) & (p <= p_band[1])
+    dT_band = np.average(dT3[band], axis=0, weights=dm[band])
+
+    all_core = np.where(core_mask[None], dT3, np.nan)
+    k, j, i = np.unravel_index(int(np.nanargmax(all_core)), dT3.shape)
+    bk, bj, bi = np.unravel_index(
+        int(np.nanargmax(np.where(band[:, None, None], all_core, np.nan))), dT3.shape)
+
+    return {
+        "lead_hr": lead_hr,
+        "r50": _radius_of(0.5),
+        "r80": _radius_of(0.8),
+        "core_frac": float((pos * area)[core_mask].sum() * 1e6 / total)
+                     if total > 0 else float("nan"),
+        "e_pos": total / 1e15,
+        "e_net": float((col * area).sum() * 1e6) / 1e15,
+        "dT_band_max": float(dT_band[core_mask].max()),
+        "dT_band_mean": float(dT_band[core_mask].mean()),
+        "dT_all_max": float(dT3[k, j, i]),
+        "dT_all_max_p": float(p[k]),
+        "dT_all_max_r": float(r2d[j, i]),
+        "dT_band3_max": float(dT3[bk, bj, bi]),
+        "dT_band3_max_p": float(p[bk]),
+        "dT_band3_max_r": float(r2d[bj, bi]),
+    }
 
 
 def energy_series(run_dir, *, sigma: float | None = None) -> dict:
@@ -658,7 +972,7 @@ def plot_energy_partition(run_dirs, out_png=None, *, ncols: int = 3):
         ax.grid(True, linestyle="--", alpha=0.4)
         ax.set_xlim(s["hour"][0], s["hour"][-1])
     for ax in axes[-1, :]:
-        ax.set_xlabel("Iteration n  (nominal hour)", fontsize=11, weight="bold")
+        ax.set_xlabel("Iteration n  (hour)", fontsize=11, weight="bold")
     for row in axes:
         row[0].set_ylabel("core-mean column energy\n[MJ m$^{-2}$]", fontsize=10, weight="bold")
     axes[0, 0].legend(loc="best", fontsize=8.5)
@@ -736,7 +1050,7 @@ def plot_moisture_hovmoller(run_dirs, out_png=None, *, dr_km: float = 25.0,
         ax.set_title(f"{what.replace(' — ', chr(10))}\n{cfg.get('tag', Path(run).name)}"
                      f"  ·  init {cfg.get('init_time', '?')}", fontsize=9.5, weight="bold")
         ax.set_xlabel("radius [km]", fontsize=11, weight="bold")
-    axes[0].set_ylabel("Iteration n  (nominal hour)", fontsize=12, weight="bold")
+    axes[0].set_ylabel("Iteration n  (hour)", fontsize=12, weight="bold")
     cb = fig.colorbar(pm, ax=list(axes), pad=0.01, shrink=0.9)
     cb.set_label("azimuthal-mean column latent energy  Lv·∫δq dm  [MJ m$^{-2}$]",
                  fontsize=10, weight="bold")
@@ -829,7 +1143,7 @@ def plot_imbalance(run_dirs, out_png=None, *, labels=None, level_hpa: int = 850,
         ax.plot(s["hour"], s["excess"], color=colors[i % len(colors)],
                 lw=2.6 if i == 0 else 1.8, marker="o", ms=3,
                 mfc=colors[i % len(colors)] if i == 0 else "none", label=lab)
-    ax.set_xlabel("Iteration n  (nominal hour)", fontsize=12, weight="bold")
+    ax.set_xlabel("Iteration n  (hour)", fontsize=12, weight="bold")
     ax.set_ylabel(f"excess ⟨|v$_t$ − v$_{{gr}}$|⟩ at {level_hpa} hPa, "
                   "r = 50–500 km  [m s$^{-1}$]", fontsize=11, weight="bold")
     ax.grid(True, linestyle="--", alpha=0.4)
@@ -951,7 +1265,7 @@ def plot_loop_sequence(run_dirs, out_png=None, *, labels=None, ncols: int = 2,
         ax.set_title(lab, fontsize=11.5, weight="bold")
         ax.grid(True, linestyle="--", alpha=0.35)
     for ax in axes[-1, :]:
-        ax.set_xlabel("Iteration n  (nominal hour)", fontsize=11, weight="bold")
+        ax.set_xlabel("Iteration n  (hour)", fontsize=11, weight="bold")
     for row in axes:
         row[0].set_ylabel("normalized by free-run max", fontsize=10, weight="bold")
     axes[0, 0].legend(loc="best", fontsize=8)
@@ -973,11 +1287,12 @@ def plot_loop_sequence(run_dirs, out_png=None, *, labels=None, ncols: int = 2,
 
 
 def plot_tseries_multi(run_dirs, out_png=None, *, labels=None,
-                       suptitle: str = "ΔPV persistence under channel locks"):
-    """ΔPV extrema vs iteration for N runs — two panels (low-level | upper-level).
+                       suptitle: str = "ΔPV persistence under channel constraints",
+                       stat: str = DEFAULT_STAT):
+    """ΔPV scalars vs iteration for N runs — two panels (low-level | upper-level).
 
-    Built for the lock-control comparison (free / lock q / lock w / lock z), but
-    takes any list of continuous runs. First run is drawn as the reference (black,
+    Built for the constraint controls (free / δq = 0 / δw = 0 / δz = 0), but takes
+    any list of continuous runs. First run is drawn as the reference (black,
     thicker); the rest follow the categorical palette in order.
     """
     import matplotlib
@@ -990,16 +1305,16 @@ def plot_tseries_multi(run_dirs, out_png=None, *, labels=None,
 
     fig, (axl, axr) = plt.subplots(1, 2, figsize=(15, 6), sharex=True)
     t_end = int(_pert_params(run_dirs[0])["forcing_steps"]) * 3
-    for ax, key, name in ((axl, "lowlevel_max", "max ΔPV 700–1000 hPa"),
-                          (axr, "upperlevel_min", "min ΔPV 200–500 hPa")):
+    for ax, key, name in ((axl, "lowlevel", stat_label(stat, "lowlevel")),
+                          (axr, "upperlevel", stat_label(stat, "upperlevel"))):
         ax.axhline(0, color="grey", lw=0.8)
         ax.axvline(t_end, color="grey", lw=1.0, ls=":")
         for i, (run, lab) in enumerate(zip(run_dirs, labels)):
-            s = pv_response_series(run)
+            s = pv_response_series(run, stat=stat)
             ax.plot(s["hour"], s[key], color=colors[i % len(colors)],
                     lw=2.6 if i == 0 else 1.8, marker="o", ms=3,
                     mfc=colors[i % len(colors)] if i == 0 else "none", label=lab)
-        ax.set_xlabel("Iteration n  (nominal hour)", fontsize=12, weight="bold")
+        ax.set_xlabel("Iteration n  (hour)", fontsize=12, weight="bold")
         ax.set_title(name, fontsize=12, weight="bold")
         ax.grid(True, linestyle="--", alpha=0.4)
     axl.set_ylabel("ΔPV  [PVU]", fontsize=12, weight="bold")
@@ -1019,7 +1334,7 @@ def plot_sweep_ratio(category_dir, out_png=None, *, lead_hr: int = 24,
                      pattern_b: str = "sweepdql_*", label_b: str = "latent-equiv δq",
                      band: tuple = (0.8, 1.25),
                      suptitle: str = "Latent-heat equivalence ratio",
-                     caption: str | None = None):
+                     caption: str | None = None, stat: str = DEFAULT_STAT):
     """Ratio ΔPV(B)/ΔPV(A) vs amplitude on a log-2 axis — the equivalence view.
 
     A ratio of 1 means run set B reproduces run set A exactly; the shaded band is
@@ -1031,8 +1346,8 @@ def plot_sweep_ratio(category_dir, out_png=None, *, lead_hr: int = 24,
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    pts_a = _sweep_points(category_dir, lead_hr, pattern_a)
-    pts_b = _sweep_points(category_dir, lead_hr, pattern_b)
+    pts_a = _sweep_points(category_dir, lead_hr, pattern_a, stat=stat)
+    pts_b = _sweep_points(category_dir, lead_hr, pattern_b, stat=stat)
     inits = sorted(set(pts_a) & set(pts_b))
     palette = [_C_WEAK, _C_STRONG, "tab:green", "tab:purple"]
     color = {init: palette[i % len(palette)] for i, init in enumerate(inits)}
@@ -1050,10 +1365,10 @@ def plot_sweep_ratio(category_dir, out_png=None, *, lead_hr: int = 24,
         b = {amp: m for amp, m in pts_b[init]}
         amps = sorted(set(a) & set(b))
         c = color[init]
-        for key, name, ls, mk in (("lowlevel_max", "low-level max (700–1000 hPa)", "-", "o"),
-                                  ("upperlevel_min", "upper-level min (200–500 hPa)", "--", "s")):
+        for key, name, ls, mk in (("lowlevel", stat_label(stat, "lowlevel"), "-", "o"),
+                                  ("upperlevel", stat_label(stat, "upperlevel"), "--", "s")):
             r = [b[x][key] / a[x][key] for x in amps]
-            hero = key == "lowlevel_max"
+            hero = key == "lowlevel"
             ax.plot(amps, r, color=c, ls=ls, lw=2.6 if hero else 1.8,
                     marker=mk, ms=5 if hero else 4, mfc=c if ls == "-" else "none",
                     label=f"init {init}  {name}", zorder=3)
@@ -1065,7 +1380,7 @@ def plot_sweep_ratio(category_dir, out_png=None, *, lead_hr: int = 24,
     ax.set_xlim(left=0)
     ax.grid(True, which="both", linestyle="--", alpha=0.35)
     ax.legend(loc="upper left", fontsize=10)
-    ax.set_title(f"{suptitle} — nominal hour {lead_hr}", fontsize=14, weight="bold")
+    ax.set_title(f"{suptitle} — hour {lead_hr}", fontsize=14, weight="bold")
     if caption is None:
         caption = (f"ratio of {label_b} to {label_a} response at equal nominal K; "
                    "a curve inside the band means the manifold converts moisture and heat "
@@ -1080,33 +1395,35 @@ def plot_sweep_ratio(category_dir, out_png=None, *, lead_hr: int = 24,
 
 
 def plot_tseries_comparison(run_moist, run_qlock, out_png=None, *,
-                            label_a: str = "moist", label_b: str = "q-locked",
-                            title_prefix: str = "Moisture binding — moist vs q-locked:",
+                            label_a: str = "moist", label_b: str = "δq = 0",
+                            title_prefix: str = "Moisture binding — moist vs δq = 0:",
                             caption: str = "gap between solid and dashed = the "
                             "moisture-mediated share of the heating→PV response "
-                            "(δq pinned to control in the q-locked run)"):
-    """Model ΔPV extrema per iteration, run A (solid) vs run B (dashed)."""
+                            "(δq pinned to control every step in the δq = 0 run)",
+                            stat: str = DEFAULT_STAT):
+    """Model ΔPV scalars per iteration, run A (solid) vs run B (dashed)."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    sm = pv_response_series(run_moist)
-    sq = pv_response_series(run_qlock)
+    sm = pv_response_series(run_moist, stat=stat)
+    sq = pv_response_series(run_qlock, stat=stat)
     t_end = int(_pert_params(run_moist)["forcing_steps"]) * 3
+    lab_low, lab_up = stat_label(stat, "lowlevel"), stat_label(stat, "upperlevel")
 
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.axhline(0, color="grey", lw=0.8)
     if sm["hour"][0] < t_end < sm["hour"][-1]:
         ax.axvline(t_end, color="grey", lw=1.0, ls=":", label=f"forcing ends ({t_end} h)")
-    ax.plot(sm["hour"], sm["lowlevel_max"], color=_C_LOW, lw=2.0, marker="o", ms=4,
-            label=f"{label_a}  max ΔPV 700–1000 hPa")
-    ax.plot(sq["hour"], sq["lowlevel_max"], color=_C_LOW, lw=2.0, ls="--", marker="o",
-            ms=4, mfc="none", label=f"{label_b}  max ΔPV 700–1000 hPa")
-    ax.plot(sm["hour"], sm["upperlevel_min"], color=_C_UP, lw=2.0, marker="s", ms=4,
-            label=f"{label_a}  min ΔPV 200–500 hPa")
-    ax.plot(sq["hour"], sq["upperlevel_min"], color=_C_UP, lw=2.0, ls="--", marker="s",
-            ms=4, mfc="none", label=f"{label_b}  min ΔPV 200–500 hPa")
-    ax.set_xlabel("Iteration n  (nominal hour)", fontsize=13, weight="bold")
+    ax.plot(sm["hour"], sm["lowlevel"], color=_C_LOW, lw=2.0, marker="o", ms=4,
+            label=f"{label_a}  {lab_low}")
+    ax.plot(sq["hour"], sq["lowlevel"], color=_C_LOW, lw=2.0, ls="--", marker="o",
+            ms=4, mfc="none", label=f"{label_b}  {lab_low}")
+    ax.plot(sm["hour"], sm["upperlevel"], color=_C_UP, lw=2.0, marker="s", ms=4,
+            label=f"{label_a}  {lab_up}")
+    ax.plot(sq["hour"], sq["upperlevel"], color=_C_UP, lw=2.0, ls="--", marker="s",
+            ms=4, mfc="none", label=f"{label_b}  {lab_up}")
+    ax.set_xlabel("Iteration n  (hour)", fontsize=13, weight="bold")
     ax.set_ylabel("ΔPV  [PVU]", fontsize=13, weight="bold")
     ax.set_xlim(sm["hour"][0], sm["hour"][-1])
     ax.grid(True, linestyle="--", alpha=0.5)
@@ -1123,7 +1440,7 @@ def plot_tseries_comparison(run_moist, run_qlock, out_png=None, *,
 
 
 # --------------------------------------------------------------------------- #
-# Additivity: moist ≟ q-locked + δq-only — the T×q synergy test
+# Additivity: moist ≟ (δq = 0) + δq-only — the T×q synergy test
 # --------------------------------------------------------------------------- #
 # The three sweep families that decompose the moist response into its severed
 # halves. All three share the same control trajectory per init, so their ΔPV
@@ -1133,12 +1450,12 @@ _ADD_SETS = (("moist", "heating_moist", "sweep_*"),
              ("dq", "dq_measured", "sweepdq_*"))
 
 
-def _dpv_reduce(dpv, *, sigma: float = 5.0):
+def _dpv_reduce(dpv, *, sigma: float = 5.0, stat: str = DEFAULT_STAT):
     """The standard dipole reduction applied to an arbitrary ΔPV field."""
     p = np.asarray(layout.pressure_levels(), dtype=float)[: dpv.shape[0]]
     core = _core_mask(dpv.shape[1], dpv.shape[2], sigma)
-    low, kji_low = _extremum(dpv, (p >= _LOW_P[0]) & (p <= _LOW_P[1]), core, "max")
-    up, _kji = _extremum(dpv, (p >= _UP_P[0]) & (p <= _UP_P[1]), core, "min")
+    low, kji_low, _s = _reduce(dpv, (p >= _LOW_P[0]) & (p <= _LOW_P[1]), core, "max", stat)
+    up, _kji, _s = _reduce(dpv, (p >= _UP_P[0]) & (p <= _UP_P[1]), core, "min", stat)
     return low, up, kji_low
 
 
@@ -1158,7 +1475,8 @@ def _lead_pairs(category_dir, pattern, family, lead_hr):
     return out
 
 
-def additivity_series(category_dir, *, lead_hr: int = 24, sigma: float = 5.0):
+def additivity_series(category_dir, *, lead_hr: int = 24, sigma: float = 5.0,
+                      stat: str = DEFAULT_STAT):
     """Field-level additivity check: ΔPV_moist ≟ ΔPV_qlock + ΔPV_dq.
 
     The sum field gets the SAME dipole reduction as the moist field (extrema of
@@ -1180,14 +1498,15 @@ def additivity_series(category_dir, *, lead_hr: int = 24, sigma: float = 5.0):
         fields = {name: delta_pv_field(*idx[name][(init, amp)]) for name in idx}
         fields["sum"] = fields["qlock"] + fields["dq"]
         for name in ("moist", "qlock", "dq", "sum"):
-            low, up, _ = _dpv_reduce(fields[name], sigma=sigma)
+            low, up, _ = _dpv_reduce(fields[name], sigma=sigma, stat=stat)
             rec.setdefault(f"{name}_low", []).append(low)
             rec.setdefault(f"{name}_up", []).append(up)
     return out
 
 
 def plot_additivity(category_dir, out_png=None, *, lead_hr: int = 24,
-                    sigma: float = 5.0, band: tuple = (0.8, 1.25)):
+                    sigma: float = 5.0, band: tuple = (0.8, 1.25),
+                    stat: str = DEFAULT_STAT):
     """3×N additivity figure, one column per init.
 
     Rows 1–2: low-level max / upper-level min ΔPV vs amplitude — moist (solid
@@ -1200,20 +1519,21 @@ def plot_additivity(category_dir, out_png=None, *, lead_hr: int = 24,
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    data = additivity_series(category_dir, lead_hr=lead_hr, sigma=sigma)
+    data = additivity_series(category_dir, lead_hr=lead_hr, sigma=sigma, stat=stat)
     inits = sorted(data)
     fig, axes = plt.subplots(3, len(inits), figsize=(7.6 * len(inits), 13.5),
                              sharex=True, squeeze=False,
                              gridspec_kw={"height_ratios": [1, 1, 0.85]})
     comp = (("moist", "moist (heating, q free)", "black", "-", 2.6, "o"),
-            ("sum", "q-locked + δq-only (reconstruction)", "black", "--", 2.2, None),
-            ("qlock", "q-locked alone (T path)", _C_UP, "-", 1.3, None),
+            ("sum", "(δq = 0) + δq-only (reconstruction)", "black", "--", 2.2, None),
+            ("qlock", "δq = 0 alone (T path)", _C_UP, "-", 1.3, None),
             ("dq", "δq-only alone (q path)", _C_LOW, "-", 1.3, None))
     for j, init in enumerate(inits):
         rec = data[init]
         amps = np.asarray(rec["amps"])
-        for i, (pole, name) in enumerate((("low", "max ΔPV 700–1000 hPa"),
-                                          ("up", "min ΔPV 200–500 hPa"))):
+        for i, (pole, name) in enumerate(
+                (("low", stat_label(stat, "lowlevel")),
+                 ("up", stat_label(stat, "upperlevel")))):
             ax = axes[i, j]
             ax.axhline(0, color="grey", lw=0.8)
             for key, lab, c, ls, lw, mk in comp:
@@ -1226,8 +1546,8 @@ def plot_additivity(category_dir, out_png=None, *, lead_hr: int = 24,
         ax = axes[2, j]
         ax.axhspan(band[0], band[1], color="0.85", alpha=0.5, zorder=0)
         ax.axhline(1.0, color="0.35", lw=1.2, zorder=1)
-        for pole, name, c, ls in (("low", "low-level max", _C_LOW, "-"),
-                                  ("up", "upper-level min", _C_UP, "--")):
+        for pole, name, c, ls in (("low", "low-level pole", _C_LOW, "-"),
+                                  ("up", "upper-level pole", _C_UP, "--")):
             r = np.asarray(rec[f"moist_{pole}"]) / np.asarray(rec[f"sum_{pole}"])
             r = np.where(r > 0, r, np.nan)      # log axis: mask sign flips
             ax.plot(amps, r, color=c, ls=ls, lw=2.0, marker="o", ms=4,
@@ -1236,15 +1556,15 @@ def plot_additivity(category_dir, out_png=None, *, lead_hr: int = 24,
         ax.set_yscale("log", base=2)
         ax.set_yticks([0.5, 0.75, 1, 1.5, 2, 3])
         ax.set_yticklabels(["0.5", "0.75", "1", "1.5", "2", "3"])
-        ax.set_ylabel("moist ÷ (qlock + δq)", fontsize=11, weight="bold")
+        ax.set_ylabel("moist ÷ ((δq = 0) + δq-only)", fontsize=11, weight="bold")
         ax.set_xlabel("Nominal amplitude amp_K  [K]", fontsize=12, weight="bold")
         ax.grid(True, which="both", linestyle="--", alpha=0.35)
         ax.set_xlim(left=0)
         if j == 0:
             ax.legend(loc="best", fontsize=9)
     axes[0, 0].legend(loc="best", fontsize=9)
-    fig.suptitle(f"Additivity of the ΔPV response — moist vs (q-locked + δq-only), "
-                 f"nominal hour {lead_hr}", fontsize=14, weight="bold")
+    fig.suptitle(f"Additivity of the ΔPV response — moist vs ((δq = 0) + δq-only), "
+                 f"hour {lead_hr}", fontsize=14, weight="bold")
     fig.text(0.995, 0.005,
              "ΔPV fields summed point-by-point on the shared control trajectory, THEN reduced: "
              "the dashed curve is the extremum of the summed field, not the sum of the two "
@@ -1261,7 +1581,7 @@ def plot_additivity(category_dir, out_png=None, *, lead_hr: int = 24,
 
 def plot_additivity_maps(category_dir, out_png=None, *, amp: float = 5.0,
                          lead_hr: int = 24, sigma: float = 5.0,
-                         zoom_deg: float = 5.0):
+                         zoom_deg: float = 5.0, stat: str = DEFAULT_STAT):
     """N×3 synergy maps at one amplitude: moist | qlock+δq | residual.
 
     Each row is one init; all three panels sit on the moist run's own low-level
@@ -1284,7 +1604,7 @@ def plot_additivity_maps(category_dir, out_png=None, *, amp: float = 5.0,
         fields = {name: delta_pv_field(*idx[name][(init, amp)]) for name in idx}
         fields["sum"] = fields["qlock"] + fields["dq"]
         fields["resid"] = fields["moist"] - fields["sum"]
-        _low, _up, kji = _dpv_reduce(fields["moist"], sigma=sigma)
+        _low, _up, kji = _dpv_reduce(fields["moist"], sigma=sigma, stat=stat)
         c_up, c_sfc = io.load_delta_bundle(idx["moist"][(init, amp)][1])
         *_f, lat2d, lon2d, p_hpa = fields_from_bundle(c_up, c_sfc)
         rows.append({"init": init, "fields": fields, "k": kji[0],
@@ -1296,7 +1616,7 @@ def plot_additivity_maps(category_dir, out_png=None, *, amp: float = 5.0,
     ys, xs = slice(cy - half, cy + half + 1), slice(cx - half, cx + half + 1)
 
     cols = (("moist", "moist (heating, q free)"),
-            ("sum", "q-locked + δq-only (reconstruction)"),
+            ("sum", "(δq = 0) + δq-only (reconstruction)"),
             ("resid", "residual = T×q synergy"))
     fig, axes = plt.subplots(len(rows), 3, figsize=(13.5, 4.4 * len(rows)),
                              squeeze=False)
@@ -1321,7 +1641,7 @@ def plot_additivity_maps(category_dir, out_png=None, *, amp: float = 5.0,
                               fontsize=10, weight="bold")
         fig.colorbar(im, ax=list(axes[i]), pad=0.01, fraction=0.02,
                      label="ΔPV  [PVU]")
-    fig.suptitle(f"ΔPV additivity maps — {amp:g} K, nominal hour {lead_hr}, "
+    fig.suptitle(f"ΔPV additivity maps — {amp:g} K, hour {lead_hr}, "
                  "moist low-level extremum layer", fontsize=13, weight="bold")
     if out_png is not None:
         fig.savefig(out_png, dpi=200, bbox_inches="tight")
@@ -1332,6 +1652,13 @@ def plot_additivity_maps(category_dir, out_png=None, *, amp: float = 5.0,
 if __name__ == "__main__":
     import argparse
     ap = argparse.ArgumentParser(description="ΔPV forcing–response figures")
+    # Every subcommand reduces a ΔPV field to one number the same way, so --stat
+    # is declared once on the top-level parser and applies to all of them.
+    ap.add_argument("--stat", choices=STATS, default=DEFAULT_STAT,
+                    help="how each ΔPV field collapses to a scalar: max = the "
+                         "single-cell extremum (jumpy, one cell decides); "
+                         "p95/p90 = the MEAN over the top 5%%/10%% of the same "
+                         "core×layer box (default: %(default)s)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("sweep", help="ΔPV vs heating amplitude at a fixed lead")
     s.add_argument("category_dir", help="e.g. outputs/diabatic_heating")
@@ -1357,9 +1684,9 @@ if __name__ == "__main__":
     cs.add_argument("--pattern-a", default="sweep_*")
     cs.add_argument("--label-a", default="moist (q free)")
     cs.add_argument("--pattern-b", default="sweepq_*")
-    cs.add_argument("--label-b", default="q-locked (δq=0)")
+    cs.add_argument("--label-b", default="δq = 0")
     cs.add_argument("--title", default="Moisture binding of the heating→PV response "
-                                       "— moist vs q-locked")
+                                       "— moist vs δq = 0")
     cs.add_argument("--out", default="pv_sweep_qlock_comparison.png")
     lp = sub.add_parser("loop", help="T–q–w–z loop observables (death-sequence figure)")
     lp.add_argument("run_dirs", nargs="+", help="first run = free reference")
@@ -1375,7 +1702,7 @@ if __name__ == "__main__":
     mt = sub.add_parser("multi-tseries", help="ΔPV series overlay for N runs (lock controls)")
     mt.add_argument("run_dirs", nargs="+")
     mt.add_argument("--labels", nargs="+", default=None)
-    mt.add_argument("--title", default="ΔPV persistence under channel locks")
+    mt.add_argument("--title", default="ΔPV persistence under channel constraints")
     mt.add_argument("--out", default="pv_tseries_multi.png")
     qh = sub.add_parser("qhov", help="radius–time Hovmöller of column latent energy")
     qh.add_argument("run_dirs", nargs="+", help="continuous run dirs (one panel each)")
@@ -1395,7 +1722,7 @@ if __name__ == "__main__":
     rs.add_argument("--title", default="Latent-heat equivalence ratio")
     rs.add_argument("--caption", default=None, help="footer note (default: cp/Lv wording)")
     rs.add_argument("--out", default="pv_sweep_ratio.png")
-    ad = sub.add_parser("additivity", help="moist vs (q-locked + δq-only) — T×q synergy")
+    ad = sub.add_parser("additivity", help="moist vs ((δq = 0) + δq-only) — T×q synergy")
     ad.add_argument("category_dir")
     ad.add_argument("--lead", type=int, default=24)
     ad.add_argument("--out", default="pv_sweep_additivity.png")
@@ -1406,31 +1733,32 @@ if __name__ == "__main__":
     ct.add_argument("run_moist")
     ct.add_argument("run_qlock")
     ct.add_argument("--label-a", default="moist")
-    ct.add_argument("--label-b", default="q-locked")
-    ct.add_argument("--title-prefix", default="Moisture binding — moist vs q-locked:")
+    ct.add_argument("--label-b", default="δq = 0")
+    ct.add_argument("--title-prefix", default="Moisture binding — moist vs δq = 0:")
     ct.add_argument("--caption", default="gap between solid and dashed = the "
                     "moisture-mediated share of the heating→PV response "
-                    "(δq pinned to control in the q-locked run)")
+                    "(δq pinned to control every step in the δq = 0 run)")
     ct.add_argument("--out", default="pv_tseries_qlock_comparison.png")
     a = ap.parse_args()
     if a.cmd == "sweep":
         plot_amplitude_sweep(a.category_dir, a.out, lead_hr=a.lead, pattern=a.pattern,
-                             family=a.family)
+                             family=a.family, stat=a.stat)
     elif a.cmd == "maps":
         plot_sweep_maps(a.category_dir, a.init, a.out, amps=tuple(a.amps),
-                        lead_hr=a.lead, per_K=a.per_K,
+                        lead_hr=a.lead, per_K=a.per_K, stat=a.stat,
                         pattern=a.prefix + "_{amp}_{h}h_init{init}")
     elif a.cmd == "compare-sweep":
         plot_sweep_comparison(a.category_dir, a.out, lead_hr=a.lead,
                               pattern_a=a.pattern_a, label_a=a.label_a,
                               pattern_b=a.pattern_b, label_b=a.label_b,
-                              suptitle=a.title)
+                              suptitle=a.title, stat=a.stat)
     elif a.cmd == "energy":
         plot_energy_partition(a.run_dirs, a.out, ncols=a.ncols)
     elif a.cmd == "qhov":
         plot_moisture_hovmoller(a.run_dirs, a.out, r_max_km=a.r_max)
     elif a.cmd == "multi-tseries":
-        plot_tseries_multi(a.run_dirs, a.out, labels=a.labels, suptitle=a.title)
+        plot_tseries_multi(a.run_dirs, a.out, labels=a.labels, suptitle=a.title,
+                           stat=a.stat)
     elif a.cmd == "imbalance":
         plot_imbalance(a.run_dirs, a.out, labels=a.labels, level_hpa=a.level,
                        suptitle=a.title)
@@ -1440,15 +1768,16 @@ if __name__ == "__main__":
         plot_sweep_ratio(a.category_dir, a.out, lead_hr=a.lead,
                          pattern_a=a.pattern_a, label_a=a.label_a,
                          pattern_b=a.pattern_b, label_b=a.label_b, suptitle=a.title,
-                         caption=a.caption)
+                         caption=a.caption, stat=a.stat)
     elif a.cmd == "additivity":
-        plot_additivity(a.category_dir, a.out, lead_hr=a.lead)
+        plot_additivity(a.category_dir, a.out, lead_hr=a.lead, stat=a.stat)
         if a.maps_out:
             plot_additivity_maps(a.category_dir, a.maps_out, amp=a.map_amp,
-                                 lead_hr=a.lead)
+                                 lead_hr=a.lead, stat=a.stat)
     elif a.cmd == "compare-tseries":
         plot_tseries_comparison(a.run_moist, a.run_qlock, a.out,
                                 label_a=a.label_a, label_b=a.label_b,
-                                title_prefix=a.title_prefix, caption=a.caption)
+                                title_prefix=a.title_prefix, caption=a.caption,
+                                stat=a.stat)
     else:
-        plot_pv_timeseries(a.run_dir, a.out)
+        plot_pv_timeseries(a.run_dir, a.out, stat=a.stat)

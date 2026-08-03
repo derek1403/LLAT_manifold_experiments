@@ -27,26 +27,27 @@ import style as S
 
 _TREATMENTS = [
     ("heating_moist", "tseries_5K_120h_init{init}", "free heating", "#111111", "-"),
-    ("heating_qlock", "tseriesq_5K_120h_init{init}", "lock δq", S.C_LAT, "-"),
-    ("heating_wlock", "tseriesw_5K_120h_init{init}", "lock δw", S.C_STRONG, "--"),
-    ("heating_zlock", "tseriesz_5K_120h_init{init}", "lock δz", "#009E73", "-."),
+    ("heating_qlock", "tseriesq_5K_120h_init{init}", "δq = 0", S.C_LAT, "-"),
+    ("heating_wlock", "tseriesw_5K_120h_init{init}", "δw = 0", S.C_STRONG, "--"),
+    ("heating_zlock", "tseriesz_5K_120h_init{init}", "δz = 0", "#009E73", "-."),
 ]
 
 
-def plot(init: str = D.STRONG, style: str = "note"):
+def plot(init: str = D.STRONG, style: str = "note", *, ic: str = D.DEFAULT_IC,
+         stat: str = D.DEFAULT_STAT):
     S.apply()
     from llat_manifold.diagnostics.response import imbalance_series
     t_end = D.forcing_end_hours(str(D.run("heating_moist",
-                                          "tseries_5K_120h_init{}".format(init))))
+                                          "tseries_5K_120h_init{}".format(init), ic=ic)))
 
     fig, ax = plt.subplots(figsize=(11, 6.2))
     S.zero_line(ax)
     S.forcing_span(ax, t_end)
     for fam, tag, lab, c, ls in _TREATMENTS:
-        s = imbalance_series(str(D.run(fam, tag.format(init=init))))
+        s = imbalance_series(str(D.run(fam, tag.format(init=init), ic=ic)))
         ax.plot(s["hour"], s["excess"], color=c, ls=ls,
                 lw=2.4 if fam == "heating_moist" else 1.9, marker="o", ms=2.5, label=lab)
-    ax.set_xlabel("Iteration n  (nominal hour)")
+    ax.set_xlabel("Iteration n  (hour)")
     ax.set_ylabel(r"excess $\langle|v_t - v_{gr}|\rangle$ at 850 hPa,"
                   "\nr = 50–500 km  [m s$^{-1}$]")
     ax.set_xlim(s["hour"][0], s["hour"][-1])
@@ -61,8 +62,11 @@ def plot(init: str = D.STRONG, style: str = "note"):
 
 
 if __name__ == "__main__":
-    ap = S.add_style_args(argparse.ArgumentParser(description=__doc__))
+    ap = D.add_data_args(
+        S.add_style_args(argparse.ArgumentParser(description=__doc__)))
     ap.add_argument("--init", default=D.STRONG)
-    ap.add_argument("--out", default=str(D.FIGS / "m2_imbalance_locks.png"))
+    ap.add_argument("--out", default=None,
+                    help="default: figs/<ic>/<stat>/m2_imbalance_locks.png")
     a = ap.parse_args()
-    S.save(plot(a.init, a.style), a.out, style=a.style, pdf=not a.no_pdf)
+    out = a.out or D.figs_dir(a.ic, a.stat) / "m2_imbalance_locks.png"
+    S.save(plot(a.init, a.style, ic=a.ic, stat=a.stat), out, style=a.style, pdf=not a.no_pdf)

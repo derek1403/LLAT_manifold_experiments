@@ -21,14 +21,15 @@ import _data as D
 import style as S
 
 
-def plot(lead_hr: int = 24, style: str = "note"):
+def plot(lead_hr: int = 24, style: str = "note", *, ic: str = D.DEFAULT_IC,
+         stat: str = D.DEFAULT_STAT):
     S.apply()
-    heat = D.sweep(D.FAMILY["heating_moist"][0], lead_hr)
-    dql = D.sweep(D.FAMILY["dq_latent"][0], lead_hr)
+    heat = D.sweep(D.FAMILY["heating_moist"][0], lead_hr, ic=ic, stat=stat)
+    dql = D.sweep(D.FAMILY["dq_latent"][0], lead_hr, ic=ic, stat=stat)
     color = S.case_colors(set(heat) | set(dql))
 
     fig, (axL, axR) = plt.subplots(1, 2, figsize=(15, 6.2), sharex=True)
-    for ax, (key, name) in zip((axL, axR), D.POLES):
+    for ax, (key, name) in zip((axL, axR), D.poles(stat)):
         S.zero_line(ax)
         for init in sorted(set(heat) | set(dql)):
             c = color[init]
@@ -43,8 +44,8 @@ def plot(lead_hr: int = 24, style: str = "note"):
         ax.set_xlabel("Nominal amplitude amp_K  [K]")
         ax.set_title(name)
         ax.set_xlim(left=0)
-    axL.set_ylabel(f"ΔPV at nominal hour {lead_hr}  [PVU]")
-    axR.set_ylabel(f"ΔPV at nominal hour {lead_hr}  [PVU]")
+    axL.set_ylabel(f"ΔPV at hour {lead_hr}  [PVU]")
+    axR.set_ylabel(f"ΔPV at hour {lead_hr}  [PVU]")
     #axL.legend(loc="upper left")
     # 保持對齊左上角，但將基準點往下移動約 10% 的高度
     axL.legend(loc="upper left", bbox_to_anchor=(0.0, 0.95))
@@ -59,8 +60,11 @@ def plot(lead_hr: int = 24, style: str = "note"):
 
 
 if __name__ == "__main__":
-    ap = S.add_style_args(argparse.ArgumentParser(description=__doc__))
+    ap = D.add_data_args(
+        S.add_style_args(argparse.ArgumentParser(description=__doc__)))
     ap.add_argument("--lead", type=int, default=24)
-    ap.add_argument("--out", default=str(D.FIGS / "h3_dql_curves.png"))
+    ap.add_argument("--out", default=None,
+                    help="default: figs/<ic>/<stat>/h3_dql_curves.png")
     a = ap.parse_args()
-    S.save(plot(a.lead, a.style), a.out, style=a.style, pdf=not a.no_pdf)
+    out = a.out or D.figs_dir(a.ic, a.stat) / "h3_dql_curves.png"
+    S.save(plot(a.lead, a.style, ic=a.ic, stat=a.stat), out, style=a.style, pdf=not a.no_pdf)
