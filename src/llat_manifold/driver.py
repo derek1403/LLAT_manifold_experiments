@@ -7,14 +7,25 @@ Modes
 -----
 ``snapshot`` (the LLAT semi-linear power iteration, frozen valid time)
     Background ``ū = M(u₀)`` computed once. Then, with constant forcing ``f`` added
-    every iteration:
+    every iteration, the base inside ``M`` is **always the initial field**:
 
-        u′₁ = M(u₀ + f) − ū
-        u′ᵢ = M(ū + u′ᵢ₋₁ + f) − ū      (i ≥ 2)
+        u′ᵢ = M(u₀ + u′ᵢ₋₁ + f) − M(u₀)          (u′₀ = δ_IC)
 
-    i.e. the base inside ``M`` is the true initial field on the first iteration and the
-    once-evolved background ``ū`` thereafter; the departure is always measured from
-    ``ū``. This amplifies the fastest-growing finite-time structure.
+    so the departure is a repeated finite-difference application of the *same* operator
+    linearized about u₀: were ``M`` linear this is exactly ``u′ᵢ = J u′ᵢ₋₁ + J f``, a
+    forced power iteration whose homogeneous part amplifies the fastest-growing
+    finite-time structure. Two properties follow and are worth stating because the
+    earlier form lacked both:
+
+    * **f = 0 ⟹ u′ ≡ 0 identically.** The model is deterministic, so a null run returns
+      ū at every iteration. Any drift in a zero-forcing run is a bug, not physics.
+    * **the constant term is ``J f`` and nothing else.** Using ``ū`` as the base from
+      i ≥ 2 (as this did before 2026-08-04) adds ``(J − I)ū = M(ū) − ū`` to that
+      constant — a forcing-independent drift that is *sign-independent*, so an
+      antisymmetry test reads it as "nonlinearity". Measured on this configuration it
+      reached 0.70 PVU by i = 4, larger than the 5 K response itself. Worse, since
+      ``ū + u′ᵢ₋₁`` telescopes to the previous *output*, that form was not an iteration
+      of one operator at all but a plain nonlinear integration.
 
 ``continuous`` (time-marching)
     A control trajectory ``Iₙ = M(Iₙ₋₁)`` and a perturbed trajectory advance together
@@ -26,7 +37,14 @@ Modes
     the full state. Faithful to ``LLAT_add_heat_onestep.py``.
 
 Static-variable locking (with dynamic masking) keeps non-prognostic surface channels
-equal to the background and zero in ``δ`` unless an experiment claims them.
+equal to the background and zero in ``δ`` unless an experiment claims them. The
+reference for that lock is ``u₀``, never a model output: DLAMPty predicts the
+prescribed channels along with everything else and does so badly — one step returns
+terrain 45 % flatter (1899 → 1041 m), a land mask that is no longer binary
+(−0.06 … 1.05), lat/lon displaced 0.08°, and a diurnal encoding advanced 3 h. Adopting
+those as the prescription would hand every subsequent iteration a corrupted lower
+boundary, and would make ``advance_time=False`` freeze the clock at t₀+3h rather than
+at t₀.
 """
 from __future__ import annotations
 
@@ -167,8 +185,12 @@ def _run_snapshot(cfg, dlampty, out_dir, state, pert, active_idx):
     init_s = state.initial_time.strftime("%Y%m%d%H")
 
     u0_up, u0_sfc = _f32(state.upper, state.surface)
-    # Background ū = M(u₀), frozen time.
-    ubar_up, ubar_sfc = m_operator(u0_up, u0_sfc, dlampty, advance_time=False)
+    # Background ū = M(u₀), frozen time. The prescribed channels are pinned to u₀'s own
+    # values rather than kept from the model output (see the module docstring): ū is the
+    # reference every δ is measured against and the field the diagnostics rebuild ū + δ
+    # from, so its grid, terrain and land mask have to be the true ones.
+    ubar_up, ubar_sfc = m_operator(u0_up, u0_sfc, dlampty, advance_time=False,
+                                   lock_ref=u0_sfc, lock_idx=active_idx)
     ubar_up, ubar_sfc = _f32(ubar_up, ubar_sfc)
     # Save the background so diagnostics can form physical absolute/Δ fields (ū + δ).
     io.save_delta_bundle(out_dir / "background", ubar_up, ubar_sfc)
@@ -180,14 +202,16 @@ def _run_snapshot(cfg, dlampty, out_dir, state, pert, active_idx):
     saved = []
     for it in range(1, iterations + 1):
         f_up, f_sfc = _forcing(state, pert, active_idx, it, 0, u0_up.shape, u0_sfc.shape)
-        base_up, base_sfc = (u0_up, u0_sfc) if it == 1 else (ubar_up, ubar_sfc)
 
-        A_up = np.ascontiguousarray(base_up + d_up + f_up, dtype=np.float32)
-        A_sfc = np.ascontiguousarray(base_sfc + d_sfc + f_sfc, dtype=np.float32)
-        _align_statics(A_sfc, ubar_sfc, active_idx)
+        # The base is u₀ at every iteration. Using ū from i ≥ 2 makes ``base + d``
+        # telescope to the previous output, which turns the loop into a free nonlinear
+        # integration and leaves M(ū) − ū in δ forever after.
+        A_up = np.ascontiguousarray(u0_up + d_up + f_up, dtype=np.float32)
+        A_sfc = np.ascontiguousarray(u0_sfc + d_sfc + f_sfc, dtype=np.float32)
+        _align_statics(A_sfc, u0_sfc, active_idx)
 
         u_up, u_sfc = m_operator(A_up, A_sfc, dlampty, advance_time=False,
-                                 lock_ref=ubar_sfc, lock_idx=active_idx)
+                                 lock_ref=u0_sfc, lock_idx=active_idx)
         d_up = u_up - ubar_up
         d_sfc = u_sfc - ubar_sfc
         _zero_locked(d_sfc, active_idx)

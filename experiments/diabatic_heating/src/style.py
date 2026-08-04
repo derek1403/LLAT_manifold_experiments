@@ -130,12 +130,18 @@ def panel_letters(axes, *, start: int = 0, loc=(0.012, 0.985)) -> None:
                 bbox=dict(boxstyle="square,pad=0.22", fc="white", ec="none", alpha=0.78))
 
 
-def caption(fig, text: str, style: str = "note") -> None:
-    """The italic footer. Printed in ``note`` style; suppressed for ``paper``."""
+def caption(fig, text: str, style: str = "note", *, wrap: bool = False) -> None:
+    """The italic footer. Printed in ``note`` style; suppressed for ``paper``.
+
+    ``wrap`` opts into line wrapping at the figure width. Off by default so no
+    existing figure changes: the caption is right-anchored, so on a figure narrower
+    than the text it runs off the left edge and ``savefig(bbox="tight")`` pads the
+    canvas out to include it. Pass it on figures whose width varies with the data.
+    """
     if style != "note" or not text:
         return
     fig.text(0.995, 0.004, text, ha="right", va="bottom", weight="normal",
-             fontsize=FS_CAPTION, style="italic", color=C_NOTE)
+             fontsize=FS_CAPTION, style="italic", color=C_NOTE, wrap=wrap)
 
 
 def save(fig, out_path, *, style: str = "note", pdf: bool = True) -> None:

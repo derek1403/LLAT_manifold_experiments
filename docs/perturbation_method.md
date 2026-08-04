@@ -91,28 +91,83 @@ the background is computed once and the iteration is
 
 $$\begin{aligned}
 \bar u &= M(u_0), \\
-u'_1 &= M(u_0 + f) - \bar u, \\
-u'_i &= M(\bar u + u'_{i-1} + f) - \bar u \quad (i\ge 2).
+u'_i &= M(u_0 + u'_{i-1} + f) - M(u_0) \quad (u'_0 = \delta_{\rm IC}).
 \end{aligned} \quad 
 \text{(3.1)}$$
 
-That is: the base inside $M$ is the true initial field on the first iteration and the
-once-evolved background $\bar u$ thereafter, and the departure is always measured from
-$\bar u$. The forcing $f$ is added **every** iteration.
+That is: the base inside $M$ is the initial field at **every** iteration, and the
+departure is always measured from $\bar u$. The forcing $f$ is added **every**
+iteration.
 
 **Interpretation.** 
 
-If $M$ *were* linear ($\delta'=\mathbf{J}\delta$), (3.1) would be a
-forced **power iteration** $\,u'_i = \mathbf{J}u'_{i-1} + (\text{const})$ , whose
-homogeneous part converges (after normalization) to the eigenvector of $\mathbf{J}$
-with the largest $|\lambda|$ — the fastest-growing mode. In our nonlinear setting (3.1)
-is the nonlinear analogue: repeated application of $M$ selects and amplifies the
-**fastest-growing finite-time structure** about $\bar u$, here saturating at finite
-amplitude (in a test run $|\delta T|_{\max}$ climbs then levels near ~10 K).
+If $M$ *were* linear ($\delta'=\mathbf{J}\delta$), (3.1) would be exactly the forced
+**power iteration** $\,u'_i = \mathbf{J}u'_{i-1} + \mathbf{J}f$, whose homogeneous part
+converges (after normalization) to the eigenvector of $\mathbf{J}$ with the largest
+$|\lambda|$ — the fastest-growing mode. In our nonlinear setting (3.1) is the nonlinear
+analogue: repeated application of the *same* operator, linearized about the *same*
+state, selects and amplifies the **fastest-growing finite-time structure** about $u_0$.
 (Relating this rigorously to singular vectors of $\mathbf{J}$ needs a norm and the
 adjoint; see §5.)
 
+The base state is not a free choice — see §3.1.1.
+
 Reference: `run_snapshot_semilinear.py`; here `driver._run_snapshot`.
+
+#### 3.1.1 Why the base is $u_0$ and not $\bar u$ (corrected 2026-08-04)
+
+Until 2026-08-04 the recursion above read $u'_i = M(\bar u + u'_{i-1} + f) - \bar u$ for
+$i \ge 2$. Two things are wrong with it, and both are visible in a zero-forcing run.
+
+**It is not an iteration of one operator.** Since $u'_{i-1}$ is measured from $\bar u$,
+the argument telescopes:
+
+$$\bar u + u'_{i-1} = \bar u + (u_{i-1} - \bar u) = u_{i-1},$$
+
+so the model input at step $i$ is literally the previous *output*. The loop was a plain
+nonlinear integration $u_i = M(u_{i-1} + f)$ at frozen valid time, and $u'_i$ was that
+trajectory minus a *constant* reference — not a repeated application of $\mathbf{J}$.
+
+**The constant term carries a spurious drift.** In the linear idealization the old form
+gives
+
+$$u'_i = \mathbf{J}(\bar u + u'_{i-1} + f) - \bar u
+      = \mathbf{J}u'_{i-1} + \underbrace{(\mathbf{J}-\mathbf{I})\bar u}_{\;=\;M(\bar u)-\bar u} + \mathbf{J}f,$$
+
+whereas (3.1) gives $u'_i = \mathbf{J}u'_{i-1} + \mathbf{J}f$. The extra term is
+$M(\bar u)-\bar u$: $\bar u$ is not a fixed point of $M$, so stepping it moves it. It is
+**independent of $f$ and therefore of the sign of $f$**, so it survives intact into
+$\tfrac12[\delta(+A)+\delta(-A)]$ and an antisymmetry test reads it as *nonlinearity*.
+On the Ragasa axisymmetric configuration it reached **0.70 PVU by $i=4$, larger than the
+5 K response itself**.
+
+**A separate defect, same symptom.** The prescribed surface channels were realigned and
+locked to $\bar u$ rather than to $u_0$. DLAMPty predicts those channels along with
+everything else and predicts them badly — one step returns terrain 45 % flatter
+(1899 → 1041 m), a land mask that is no longer binary ($-0.06\ldots1.05$), lat/lon
+displaced $0.08^\circ$, and a diurnal/solar encoding advanced 3 h. So the chain ran on a
+corrupted lower boundary, and `advance_time=False` in practice froze the clock at
+$t_0+3$h rather than at $t_0$.
+
+**The test that settles it.** $M$ is deterministic, so $f=0$ must give $u' \equiv 0$ at
+every iteration. Measured on the real model:
+
+| $i$ | old $\lvert\delta T\rvert_{\max}$ | corrected |
+| ---: | ---: | ---: |
+| 1 | 0.823 K | $1.5\times10^{-5}$ K |
+| 2 | 1.957 K | $1.9\times10^{-5}$ K |
+| 3 | 6.224 K | $4.1\times10^{-5}$ K |
+| 4 | 8.812 K | $1.2\times10^{-4}$ K |
+
+The residual is float32 round-off ($\varepsilon\cdot300\,\mathrm{K}\approx3.6\times10^{-5}$);
+ONNX CPU inference does not guarantee bitwise-identical reductions between calls. It is
+not zero and it *grows*, because a power iteration amplifies whatever is present — which
+is why a zero-forcing run is still worth carrying as a **noise floor**, and why results
+at large $i$ must be read against it. Regression tests:
+`tests/test_offline.py::test_snapshot_null_run_is_exactly_zero`,
+`::test_snapshot_statics_pinned_to_initial_state`,
+`::test_snapshot_recursion_uses_u0_as_base` (the pre-existing `test_snapshot_math` used
+an identity $M$, for which $\bar u = u_0$ — the coincidence that hid both bugs).
 
 ### 3.2 Continuous (time-marching)
 

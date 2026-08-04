@@ -45,6 +45,22 @@ class _IdentityDLAMPty:
         return up, sfc
 
 
+class _DriftingDLAMPty:
+    """M is deterministic but has **no** fixed point: ``up → 0.9·up + 0.1``.
+
+    The identity fake cannot see the two snapshot bugs fixed on 2026-08-04, because
+    with M = I the background ū equals u₀ and the model's own "static" output equals
+    the input — exactly the two coincidences that hid them. This fake breaks both:
+    ū ≠ u₀ (so basing the iteration on ū is distinguishable) and the surface channels
+    are returned +1 (so adopting the model's prescribed channels is distinguishable).
+    """
+    def predict_one_step(self, up, sfc):
+        return (0.9 * up + 0.1).astype(np.float32), (sfc + 1.0).astype(np.float32)
+
+    def changing_additional_information(self, up, sfc, t):
+        return up, sfc
+
+
 def _fake_state():
     rng = np.random.default_rng(0)
     up = rng.standard_normal((NZ, NY, NX, NUP)).astype(np.float32)
@@ -136,6 +152,77 @@ def test_snapshot_math():
         # δ_3 = 3·f; Deep profile peaks at 1, amp 1 -> centre column max ≈ 3 K.
         assert abs(t.max() - 3.0) < 1e-3
     print("ok test_snapshot_math")
+
+
+def test_snapshot_null_run_is_exactly_zero():
+    """f = 0 must give δ ≡ 0 at every iteration, for a model with no fixed point.
+
+    This is the property the old recursion lacked. It based iterations i ≥ 2 on ū and
+    pinned the prescribed channels to the model's own output, so a zero-forcing run
+    accumulated M(ū) − ū instead of returning ū; on the real model that spurious drift
+    reached 0.70 PVU by i = 4 and, being sign-independent, was read as nonlinearity by
+    the ±A antisymmetry test. M is deterministic: with no forcing there is nothing for
+    δ to be.
+    """
+    state = _fake_state()
+    pert = HeatingPerturbation(injection="per_step", amp_K=0.0, heat_type="Deep",
+                               forcing_steps=8, amp_mode="spread", sigma=5.0)
+    active = layout.active_lock_indices()
+    with tempfile.TemporaryDirectory() as d:
+        saved = driver._run_snapshot({"iterations": 4}, _DriftingDLAMPty(),
+                                     Path(d), state, pert, active)
+        for i, p in enumerate(saved, start=1):
+            d_up, d_sfc = io.load_delta_bundle(p)
+            assert np.all(d_up == 0.0), f"iteration {i}: |δ_up|max={np.abs(d_up).max()}"
+            assert np.all(d_sfc == 0.0), f"iteration {i}: |δ_sfc|max={np.abs(d_sfc).max()}"
+    print("ok test_snapshot_null_run_is_exactly_zero")
+
+
+def test_snapshot_statics_pinned_to_initial_state():
+    """ū carries u₀'s prescribed channels, not the model's prediction of them.
+
+    DLAMPty predicts terrain/land mask/lat/lon/time-encodings along with everything
+    else and gets them wrong (terrain came back 45 % flatter). ū is what every δ is
+    measured against and what diagnostics rebuild ū + δ from, so it has to hold the
+    true grid and lower boundary.
+    """
+    state = _fake_state()
+    pert = HeatingPerturbation(injection="per_step", amp_K=2.0, heat_type="Deep",
+                               forcing_steps=4, amp_mode="spread", sigma=5.0)
+    active = layout.active_lock_indices()
+    with tempfile.TemporaryDirectory() as d:
+        driver._run_snapshot({"iterations": 2}, _DriftingDLAMPty(),
+                             Path(d), state, pert, active)
+        _bg_up, bg_sfc = io.load_delta_bundle(Path(d) / "background.npz")
+    for idx in active:
+        assert np.allclose(bg_sfc[:, :, idx], state.surface[:, :, idx]), \
+            f"background static idx {idx} drifted with the model output"
+    # the prognostic channels *should* carry the +1 the fake step applies
+    assert np.allclose(bg_sfc[:, :, 0], state.surface[:, :, 0] + 1.0)
+    print("ok test_snapshot_statics_pinned_to_initial_state")
+
+
+def test_snapshot_recursion_uses_u0_as_base():
+    """δᵢ = M(u₀ + δᵢ₋₁ + f) − M(u₀), checked against the closed form.
+
+    For ``up → 0.9·up + 0.1`` the recursion collapses to δᵢ = 0.9(δᵢ₋₁ + f), i.e.
+    δ₃ = 2.439·f. Basing i ≥ 2 on ū instead gives a different, larger number, so this
+    pins the base state rather than merely the growth.
+    """
+    state = _fake_state()
+    pert = HeatingPerturbation(injection="per_step", amp_K=1.0, heat_type="Deep",
+                               forcing_steps=10, amp_mode="each", sigma=5.0)
+    active = layout.active_lock_indices()
+    with tempfile.TemporaryDirectory() as d:
+        saved = driver._run_snapshot({"iterations": 3}, _DriftingDLAMPty(),
+                                     Path(d), state, pert, active)
+        expect = 0.0
+        for p in saved:                      # δᵢ = 0.9 (δᵢ₋₁ + f), f peaks at 1 K
+            expect = 0.9 * (expect + 1.0)
+        d_up, _ = io.load_delta_bundle(saved[-1])
+        t = d_up[:, NY // 2, NX // 2, layout.upper_index("t")]
+        assert abs(t.max() - expect) < 1e-3, f"δ₃ max {t.max():.4f} != {expect:.4f}"
+    print("ok test_snapshot_recursion_uses_u0_as_base")
 
 
 def test_upper_lock_q():
@@ -259,6 +346,9 @@ if __name__ == "__main__":
     test_continuous_locking_and_forcing()
     test_sst_dynamic_mask()
     test_snapshot_math()
+    test_snapshot_null_run_is_exactly_zero()
+    test_snapshot_statics_pinned_to_initial_state()
+    test_snapshot_recursion_uses_u0_as_base()
     test_upper_lock_q()
     test_moisture_injection()
     test_reduce_stats_consistency()

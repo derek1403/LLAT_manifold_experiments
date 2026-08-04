@@ -54,8 +54,11 @@ from llat_manifold.idealized_vortex import background as bg           # noqa: E4
 # comes out in one row — nothing in the drawing code is hard-wired to two panels.
 _INITS = (D.STRONG, D.SEV)
 
-PV_LEVELS = np.linspace(0.0, 8.0, 33)      # diagnostics/pv.py's absolute range
-PV_TICKS = np.arange(0, 9, 2)
+# One colour per PVU. A finer ramp looks smoother but makes the eye interpolate
+# between shades instead of reading a value, which is the opposite of what a section
+# meant for comparing two vortices should do.
+PV_LEVELS = np.arange(0.0, 8.1, 1.0)       # diagnostics/pv.py's absolute range
+PV_TICKS = np.arange(0, 9, 1)
 PV_CONTOURS = np.arange(1.0, 8.1, 1.0)     # level lines over the shading, PVU
 PV_LABELLED = 2.0                          # label every 2 PVU — every 1 crowds the core
 # θ stops at 350 K: the next isentrope up exists only in the top-left corner of the
@@ -127,6 +130,40 @@ def _theta_label_points(r_km, p, th, x_km):
     return pts
 
 
+def _pv_label_points(r_km, p, pv_rp, levels):
+    """One (x, y) per labelled PV contour, at that contour's widest point.
+
+    The PV contours are nested around the axis, so left to itself ``clabel`` puts
+    their labels against the left spine or the 200 hPa frame, where upright digits
+    get clipped. The outermost radius each contour reaches is always well inside the
+    plot and is the least crowded point on it. The search skips 200 hPa for the same
+    reason — a label sitting on the top frame is a label with half of it missing.
+
+    The crossing radius is interpolated rather than snapped to the nearest grid cell,
+    and that matters: ``clabel`` labels whichever contour is nearest the point it is
+    handed, so a point sitting *between* two contours gets labelled with the wrong
+    level (the 6 PVU point landed on the 7 PVU line). On the contour, it cannot.
+    """
+    p = np.asarray(p, dtype=float)
+    pts = []
+    for lev in levels:
+        best = None
+        for k in np.where(p > _id.P_TOP_HPA)[0]:
+            prof = pv_rp[k]
+            above = np.where(prof >= lev)[0]
+            if not above.size or above[-1] + 1 >= prof.size:
+                continue                        # absent, or still above at r_max
+            i = int(above[-1])                  # outermost cell at or above lev
+            span = prof[i] - prof[i + 1]
+            frac = (prof[i] - lev) / span if span else 0.0
+            r_c = r_km[i] + frac * (r_km[i + 1] - r_km[i])
+            if best is None or r_c > best[0]:
+                best = (r_c, p[k])
+        if best is not None:
+            pts.append((float(best[0]), float(best[1])))
+    return pts
+
+
 def _draw(ax_, sec, *, rmax: float, label: str, letter: str):
     r_km, p, pv_rp, th, _vmax, rmw = sec
     cf = ax_.contourf(r_km, p, pv_rp, levels=PV_LEVELS, cmap=S.CMAP_PV_ABS,
@@ -142,13 +179,21 @@ def _draw(ax_, sec, *, rmax: float, label: str, letter: str):
     cp = ax_.contour(r_km, p, pv_rp, levels=PV_CONTOURS, colors=S.C_PV_LINE,
                      linewidths=1.6)
     #cp.set(path_effects=[pe.withStroke(linewidth=2.6, foreground="white")])
-    ax_.clabel(cp, levels=[l for l in cp.levels if l % PV_LABELLED == 0],
-               inline=True, fontsize=S.FS_ANNOT+2, fmt="%1.0f")
+    labelled = [l for l in cp.levels if l % PV_LABELLED == 0]
+    pv_labels = ax_.clabel(cp, manual=_pv_label_points(r_km, p, pv_rp, labelled),
+                           inline=True, fontsize=S.FS_ANNOT+2, fmt="%1.0f")
+    # These contours run near-vertically through the core, so clabel lays the digits
+    # on their side to follow them. Stand them upright instead. The gap clabel cut is
+    # shaped for the rotated text, so a crossing contour can still clip an upright
+    # digit (a 6 reads as a 7) — the white stroke is what keeps them unambiguous.
+    for txt in pv_labels:
+        txt.set_rotation(0)
+        txt.set_path_effects([pe.withStroke(linewidth=2.5, foreground="white")])
 
     ax_.axvline(rmw, color=S.C_GUIDE, lw=1.2, ls="--", zorder=3)
 
     ax_.set_ylim(1000, _id.P_TOP_HPA)
-    ax_.set_xlim(0, rmax)
+    ax_.set_xlim(10, rmax)
     ax_.set_xlabel("radius  (km)")
     ax_.set_title(label)
     ax_.set_title(f"({letter})", loc="left")     # panel letter beside the title

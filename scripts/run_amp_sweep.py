@@ -1,10 +1,17 @@
 #!/usr/bin/env python
-"""Batch amplitude sweep of the diabatic-heating experiment (continuous mode).
+"""Batch amplitude sweep of the diabatic-heating experiment.
 
     python scripts/run_amp_sweep.py --amps-range 5 10 0.5 \
         --inits 2025091700 2025092000 --steps 8 --forcing-steps 8
 
-Builds one continuous-mode config per (init_time, amp_K) on top of the category
+``--mode`` picks the evolution: ``continuous`` marches a control trajectory (its
+TC-following domain moves with the storm, so the prescribed surface channels change
+under the vortex), ``snapshot`` runs the semi-linear power iteration at frozen valid
+time (background computed once, every iteration realigned to it, so lat/lon, SST,
+terrain and the land mask never move). Use ``snapshot`` when the experiment is about
+the vortex's response and the environment must be held fixed.
+
+Builds one config per (init_time, amp_K) on top of the category
 ``base.yaml``, loads DLAMPty once, and runs them back to back. Each run lands in
 ``outputs/diabatic_heating/sweep_<amp>_<hours>h_init<init>/`` with the usual
 ``config_used.yaml`` + auto-README stamping. Runs whose ``data/`` already holds a
@@ -100,7 +107,7 @@ def build_config(base_cfg: dict, *, init_time: str, amp_K: float, steps: int,
                  pert: str = "heating", dq_scaling: str = "measured",
                  dq_layer: str = "full", dq_offset=(0, 0),
                  category: str | None = None, ic_npz: str | None = None,
-                 dq_table: str | None = None) -> dict:
+                 dq_table: str | None = None, mode: str = "continuous") -> dict:
     cfg = dict(base_cfg)
     cfg["init_time"] = init_time
     if category:
@@ -108,9 +115,17 @@ def build_config(base_cfg: dict, *, init_time: str, amp_K: float, steps: int,
     if ic_npz:
         # Prebuilt idealized IC; the driver loads it instead of the analysis.
         cfg["ic_npz"] = ic_npz
-    cfg["mode"] = "continuous"
-    cfg["total_steps"] = steps
-    cfg["tag"] = f"{tag_prefix}_{_amp_tag(amp_K)}_{steps * 3}h"
+    cfg["mode"] = mode
+    if mode == "snapshot":
+        # Power iteration at frozen valid time: the background ū = M(u₀) is computed
+        # once and every iteration is realigned to it, so the prescribed surface
+        # channels — including lat/lon — never move. ``steps`` counts iterations,
+        # not forecast hours, so the tag must not carry an "h".
+        cfg["iterations"] = steps
+        cfg["tag"] = f"{tag_prefix}_{_amp_tag(amp_K)}_iter{steps}"
+    else:
+        cfg["total_steps"] = steps
+        cfg["tag"] = f"{tag_prefix}_{_amp_tag(amp_K)}_{steps * 3}h"
     # Runs are grouped one level below the category by experiment family.
     cfg["family"] = family
     if locks:
@@ -150,9 +165,18 @@ _STANDARD = {
 }
 
 
-def _is_complete(out_dir: Path, steps: int) -> bool:
-    """A continuous run is complete when every lead has its delta + control pair."""
+def _is_complete(out_dir: Path, steps: int, mode: str = "continuous") -> bool:
+    """Has this run already produced its full bundle set?
+
+    The two modes store different things: ``continuous`` writes a delta *and* a
+    control per lead, while ``snapshot`` writes one shared ``background.npz`` plus a
+    delta per iteration — there is no per-iteration control, because every iteration
+    is measured against that same frozen background.
+    """
     data = out_dir / "data"
+    if mode == "snapshot":
+        return ((data / "background.npz").exists()
+                and len(list(data.glob("delta_snapshot_*.npz"))) >= steps)
     return (len(list(data.glob("delta_continuous_*.npz"))) >= steps
             and len(list(data.glob("control_continuous_*.npz"))) >= steps)
 
@@ -166,7 +190,16 @@ def main(argv=None) -> int:
                       help="inclusive amp_K range, e.g. 5 10 0.5")
     ap.add_argument("--inits", nargs="+", default=["2025091700", "2025092000"],
                     help="init times YYYYMMDDHH (default: weak 0917 + strong 0920)")
-    ap.add_argument("--steps", type=int, default=8, help="total 3 h steps (8 = 24 h)")
+    ap.add_argument("--steps", type=int, default=8,
+                    help="continuous: total 3 h steps (8 = 24 h). snapshot: number of "
+                         "power iterations (there is no forecast clock)")
+    ap.add_argument("--mode", choices=["continuous", "snapshot"], default="continuous",
+                    help="continuous = a marching control trajectory, whose TC-following "
+                         "domain moves with the storm. snapshot = the semi-linear power "
+                         "iteration at frozen valid time: the background is computed once "
+                         "and every iteration is realigned to it, so the prescribed "
+                         "surface channels (SST, f, terrain, land mask, lat/lon) never "
+                         "move (default: %(default)s)")
     ap.add_argument("--forcing-steps", type=int, default=8,
                     help="steps over which amp_K is spread (default 8 = 24 h)")
     ap.add_argument("--heat-type", default="Deep", choices=["Deep", "Shallow", "Stratiform"])
@@ -292,6 +325,7 @@ def main(argv=None) -> int:
                                pert=args.pert, dq_scaling=args.dq_scaling,
                                dq_layer=args.dq_layer, dq_offset=tuple(args.dq_offset),
                                category=category, dq_table=dq_table,
+                               mode=args.mode,
                                ic_npz=args.ic_npz or (
                                    _axisym_ic(tc_id, str(init), args.env_from)
                                    if axisym else None))
@@ -301,7 +335,8 @@ def main(argv=None) -> int:
           f"{' env=' + args.env_from if args.env_from else ''} "
           f"category={category or base_cfg['category']}")
     print(f"[sweep] {len(jobs)} run(s): amps={amp_list} inits={list(args.inits)} "
-          f"steps={args.steps} forcing_steps={args.forcing_steps} pert={args.pert} "
+          f"mode={args.mode} steps={args.steps} "
+          f"forcing_steps={args.forcing_steps} pert={args.pert} "
           f"lock={locks} layer={args.dq_layer} prefix={tag_prefix} family={family}")
 
     models = None
@@ -310,7 +345,7 @@ def main(argv=None) -> int:
         run_name = io.make_run_name(cfg, cfg["tag"])
         out_dir = io.experiment_output_dir(cfg["category"], run_name, create=True,
                                            family=cfg.get("family"))
-        if not args.force and _is_complete(out_dir, args.steps):
+        if not args.force and _is_complete(out_dir, args.steps, args.mode):
             print(f"[sweep] {i}/{len(jobs)} {run_name}: complete, skipping")
             n_skip += 1
             continue
